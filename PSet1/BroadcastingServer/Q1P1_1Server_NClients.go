@@ -15,8 +15,9 @@ type ClientData struct {
 }
 
 type ServerData struct {
-	ReceivingChannel chan Message
-	ClientsData      []ClientData
+	ReceivingChannel     chan Message
+	ClientsData          []ClientData
+	BroadcastingChannels []chan Message
 }
 
 type Message struct {
@@ -29,11 +30,10 @@ func client(data ClientData) {
 	for {
 		// periodic timeout to signal client to sent the server a message
 		timeout := time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000)))
-
 		select {
 		// message received from server
 		case msg := <-data.ReceivingChannel:
-			fmt.Printf("\n%v received from server by client %d\n", msg, data.Id)
+			fmt.Printf("\n%v received from server by client %d\n", msg.Content, data.Id)
 
 		// random timeout to signal a send message
 		case <-timeout:
@@ -48,16 +48,17 @@ func client(data ClientData) {
 
 func server(data ServerData) {
 	for {
-		var messageReceived Message
-		var randomDelayChannel <-chan time.Time
-		select {
-		case messageReceived := <-data.ReceivingChannel:
-			fmt.Printf("\n%v received from %v", messageReceived.Content, messageReceived.Sender)
-			randomDelay := time.Millisecond * (time.Duration(rand.Intn(5000) + 1000))
-			randomDelayChannel = time.After(randomDelay)
+		messageReceived := <-data.ReceivingChannel
+		fmt.Printf("\n%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
+		//random delay block
+		<-time.After(time.Millisecond * (time.Duration(rand.Intn(5000) + 1000)))
+		fmt.Printf("\nStarting to broadcast message from Client %v\n", messageReceived.Sender)
 
-		case <-randomDelayChannel:
-			fmt.Printf("\nStarting to broadcast message from%v\n", messageReceived.Sender)
+		for i := 0; i < len(data.ClientsData); i++ {
+			if data.ClientsData[i].Id == messageReceived.Sender {
+				continue
+			}
+			data.ClientsData[i].ReceivingChannel <- messageReceived
 		}
 	}
 }
@@ -71,13 +72,14 @@ func main() {
 		var input string
 		fmt.Scanln(&input)
 		if numberOfClients, err := strconv.Atoi(input); err == nil {
-			fmt.Printf("%q looks like a number. Creating %q clients.\n", input, input)
+			fmt.Printf("\n%q looks like a number. Creating %q clients.\n", input, input)
+			processStarted = true
 
-			var serverRecevingChannel = make(chan []Message, int(numberOfClients))
-			var serverBroadcastingChannels = make([]chan []Message, int(numberOfClients))
-			var clients = make([]ClientData, int(numberOfClients))
+			var serverRecevingChannel = make(chan Message, int(numberOfClients))
+			var serverBroadcastingChannels = make([]chan Message, int(numberOfClients))
+			var clientArray = make([]ClientData, int(numberOfClients))
 			for i := 0; i < int(numberOfClients); i++ {
-				serverBroadcastingChannels[i] = make(chan []Message, 10)
+				serverBroadcastingChannels[i] = make(chan Message, 10)
 			}
 			for i := 0; i < int(numberOfClients); i++ {
 				clientData := ClientData{
@@ -87,11 +89,12 @@ func main() {
 					NumberOfClients:  int(numberOfClients),
 				}
 				go client(clientData)
-				clients = append(clients, clientData)
+				clientArray[i] = clientData
 			}
 			go server(ServerData{
-				ReceivingChannel: serverRecevingChannel,
-				ClientsData:      clients,
+				ReceivingChannel:     serverRecevingChannel,
+				ClientsData:          clientArray,
+				BroadcastingChannels: serverBroadcastingChannels,
 			})
 		}
 	}
