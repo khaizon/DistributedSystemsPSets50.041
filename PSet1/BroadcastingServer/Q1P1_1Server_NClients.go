@@ -25,6 +25,19 @@ type Message struct {
 	Sender  int
 }
 
+type Event struct {
+	Content  []int
+	Sender   int
+	Receiver int
+}
+
+type ServerBroadcastInput struct {
+	Message      Message
+	Clients      []ClientData
+	Delay        time.Duration
+	EventChannel chan Event
+}
+
 func client(data ClientData) {
 	message := make([]int, data.NumberOfClients)
 	for {
@@ -47,19 +60,36 @@ func client(data ClientData) {
 }
 
 func server(data ServerData) {
+	eventChannel := make(chan Event, 10)
+	var eventsLog []Event
 	for {
-		messageReceived := <-data.ReceivingChannel
-		fmt.Printf("\n%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
-		//random delay block
-		<-time.After(time.Millisecond * (time.Duration(rand.Intn(5000) + 1000)))
-		fmt.Printf("\nStarting to broadcast message from Client %v\n", messageReceived.Sender)
+		select {
+		case messageReceived := <-data.ReceivingChannel:
+			fmt.Printf("\n%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
 
-		for i := 0; i < len(data.ClientsData); i++ {
-			if data.ClientsData[i].Id == messageReceived.Sender {
-				continue
-			}
-			data.ClientsData[i].ReceivingChannel <- messageReceived
+			//add delay for broadcast
+			broadcastDelay := time.Millisecond * (time.Duration(rand.Intn(9000) + 1000))
+			broadcastInput := ServerBroadcastInput{messageReceived, data.ClientsData, broadcastDelay, eventChannel}
+			go broadcast(broadcastInput)
+
+		case eventReceived := <-eventChannel:
+			fmt.Printf("\nEvent Log: Server sent %v to Client %v\n", eventReceived.Content, eventReceived.Receiver)
+			eventsLog = append(eventsLog, eventReceived)
 		}
+
+	}
+}
+
+func broadcast(input ServerBroadcastInput) {
+	<-time.After(input.Delay)
+	fmt.Print("\nStarting to broadcast message from Server\n")
+	for i := 0; i < len(input.Clients); i++ {
+		if input.Clients[i].Id == input.Message.Sender {
+			continue
+		}
+		input.Clients[i].ReceivingChannel <- input.Message
+		//report to server completion of event
+		input.EventChannel <- Event{input.Message.Content, -1, input.Clients[i].Id}
 	}
 }
 
@@ -71,8 +101,11 @@ func main() {
 		}
 		var input string
 		fmt.Scanln(&input)
+		if processStarted {
+			break
+		}
 		if numberOfClients, err := strconv.Atoi(input); err == nil {
-			fmt.Printf("\n%q looks like a number. Creating %q clients.\n", input, input)
+			fmt.Printf("\n%q looks like a number. Creating %q clients. Press ENTER again to stop processes\n", input, input)
 			processStarted = true
 
 			var serverRecevingChannel = make(chan Message, int(numberOfClients))
