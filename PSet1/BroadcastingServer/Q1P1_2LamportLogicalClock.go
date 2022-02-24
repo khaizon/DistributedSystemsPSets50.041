@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -23,59 +25,70 @@ type ServerData struct {
 type Message struct {
 	Content []int
 	Sender  int
-	//Clock int
-}
-
-type Event struct {
-	Content  []int
-	Sender   int
-	Receiver int
+	Clock   float64
 }
 
 type ServerBroadcastInput struct {
 	Message      Message
 	Clients      []ClientData
 	Delay        time.Duration
-	EventChannel chan Event
+	EventChannel chan Message
 }
 
 func client(data ClientData) {
 	message := make([]int, data.NumberOfClients)
+	var clock float64 = 0
+	var messagesToBeRead []Message
 	for {
-		// periodic timeout to signal client to sent the server a message
-		timeout := time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000)))
 		select {
 		// message received from server
 		case msg := <-data.ReceivingChannel:
 			fmt.Printf("\n%v received from server by client %d\n", msg.Content, data.Id)
+			messagesToBeRead = append(messagesToBeRead, msg)
+			clock = math.Max(clock, msg.Clock) + 1
 
 		// random timeout to signal a send message
-		case <-timeout:
+		case <-time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000))):
 			message[data.Id] = message[data.Id] + 1
 			sendCopy := make([]int, len(message))
 			copy(sendCopy, message)
-			data.SendingChannel <- Message{sendCopy, data.Id}
+
+			clock += 1
+			data.SendingChannel <- Message{sendCopy, data.Id, clock}
 			fmt.Printf("\nClient %d has sent %v\n", data.Id, sendCopy)
+
+		//print the order of messages to be read every 15 + Id seconds
+		case <-time.After(time.Millisecond * time.Duration((data.Id+1)*1000+15000)):
+			fmt.Printf("\nMessages to be read are%v\n", messagesToBeRead)
+			sort.Slice(messagesToBeRead[:], func(i, j int) bool {
+				return messagesToBeRead[i].Clock < messagesToBeRead[j].Clock
+			})
+			fmt.Print("\nTotal Order:\n")
+			for _, msg := range messagesToBeRead {
+				fmt.Printf("\nClock: %v, Message: %v\n", msg.Clock, msg.Content)
+			}
 		}
 	}
 }
 
 func server(data ServerData) {
-	eventChannel := make(chan Event, 10)
-	var eventsLog []Event
+	var clock float64 = 0
+	eventChannel := make(chan Message, 10)
 	for {
+
 		select {
 		case messageReceived := <-data.ReceivingChannel:
 			fmt.Printf("\n%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
+			clock = math.Max(clock, messageReceived.Clock) + 1
 
 			//add delay for broadcast
 			broadcastDelay := time.Millisecond * (time.Duration(rand.Intn(9000) + 1000))
 			broadcastInput := ServerBroadcastInput{messageReceived, data.ClientsData, broadcastDelay, eventChannel}
 			go broadcast(broadcastInput)
 
-		case eventReceived := <-eventChannel:
-			fmt.Printf("\nEvent Log: Server sent %v to Client %v\n", eventReceived.Content, eventReceived.Receiver)
-			eventsLog = append(eventsLog, eventReceived)
+		case eventMessage := <-eventChannel:
+			fmt.Printf("\nEvent Log: Server sent %v to Clients\n", eventMessage.Content)
+			clock += 1
 		}
 
 	}
@@ -90,8 +103,8 @@ func broadcast(input ServerBroadcastInput) {
 		}
 		input.Clients[i].ReceivingChannel <- input.Message
 		//report to server completion of event
-		input.EventChannel <- Event{input.Message.Content, -1, input.Clients[i].Id}
 	}
+	input.EventChannel <- input.Message
 }
 
 func main() {
