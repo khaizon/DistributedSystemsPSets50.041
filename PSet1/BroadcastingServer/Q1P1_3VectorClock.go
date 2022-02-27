@@ -32,7 +32,7 @@ type ServerBroadcastInput struct {
 	Message      Message
 	Clients      []ClientData
 	Delay        time.Duration
-	EventChannel chan Message
+	EventChannel chan Message //test
 }
 
 func client(data ClientData) {
