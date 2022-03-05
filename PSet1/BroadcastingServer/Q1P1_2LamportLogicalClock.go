@@ -40,6 +40,10 @@ func client(data ClientData) {
 	var clock float64 = 0
 	var messagesToBeRead []Message
 	for {
+		if len(messagesToBeRead) > 10 {
+			fmt.Printf("\n\nProcess %v has ended\n\n", data.Id)
+			break
+		}
 		select {
 		// message received from server
 		case msg := <-data.ReceivingChannel:
