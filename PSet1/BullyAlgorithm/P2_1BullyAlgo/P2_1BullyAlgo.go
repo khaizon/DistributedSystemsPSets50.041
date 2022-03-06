@@ -59,5 +59,17 @@ func machine(data MachineData) {
 func start_election(data ElectionData) {
 	//a way to start the election
 	//send to all machines of higher Id
+	for i, c := range data.Channels {
+		if i == data.Initiator {
+			continue
+		}
+		c <- data.Initiator
+	}
 	//wait for an answer until timeout has been reached
+	select {
+	case msg := <-data.Channels[data.Initiator]:
+		fmt.Print(msg)
+	case <-time.After(time.Duration(data.Timeout) * time.Second):
+		fmt.Print("timeout has been reached")
+	}
 }
