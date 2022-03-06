@@ -40,6 +40,8 @@ func client(data ClientData) {
 	var clock float64 = 0
 	var messagesToBeRead []Message
 	for {
+		sendMessageDelay := time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000)))
+		printOrderDelay := time.After(time.Millisecond * time.Duration((data.Id+1)*1000+5500))
 		if len(messagesToBeRead) > 10 {
 			fmt.Printf("\n\nProcess %v has ended\n\n", data.Id)
 			break
@@ -52,7 +54,7 @@ func client(data ClientData) {
 			clock = math.Max(clock, msg.Clock) + 1
 
 		// random timeout to signal a send message
-		case <-time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000))):
+		case <-sendMessageDelay:
 			message[data.Id] = message[data.Id] + 1
 			sendCopy := make([]int, len(message))
 			copy(sendCopy, message)
@@ -62,7 +64,7 @@ func client(data ClientData) {
 			fmt.Printf("\nClient %d has sent %v", data.Id, sendCopy)
 
 		//print the order of messages to be read every 15 + Id seconds
-		case <-time.After(time.Millisecond * time.Duration((data.Id+1)*1000+5500)):
+		case <-printOrderDelay:
 			fmt.Printf("\nMessages to be read are%v", messagesToBeRead)
 			sort.Slice(messagesToBeRead[:], func(i, j int) bool {
 				return messagesToBeRead[i].Clock < messagesToBeRead[j].Clock
