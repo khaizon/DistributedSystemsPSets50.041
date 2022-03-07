@@ -148,9 +148,9 @@ func machine(self MachineData) {
 							//random failure when announcing
 							//machine 0,1,2 will know that machine 4 being the coordinator but not machine 3.
 							(*self.WaitGroup).Add(1)
-							fmt.Printf("%v : dying before broadcasting to machine %v\n", self.Id, i+1)
+							fmt.Printf("%v : waiting for machine %v to die before continuing broadcast\n", self.Id, i)
 							(*self.WaitGroup).Wait()
-							self.IsDown = true
+							fmt.Printf("%v : continuing broadcast\n", self.Id)
 						}
 					}
 					self.IsInElection = false
@@ -180,6 +180,7 @@ func machine(self MachineData) {
 					//start election
 					fmt.Printf("%v : starting election\n", self.Id)
 					self.IsInElection = true
+
 					for i := 0; i < self.NumberOfMachines; i++ {
 						if i <= self.Id {
 							continue //only ask machines of high id
@@ -198,6 +199,8 @@ func machine(self MachineData) {
 				self.Coordinator = msg.Sender
 				fmt.Printf("%v : new coordinator is  %v\n", self.Id, self.Coordinator)
 				if self.Id == 2 && msg.Sender == self.NumberOfMachines-2 {
+					self.IsDown = true
+					fmt.Printf("%v : machine down\n", self.Id)
 					(*self.WaitGroup).Done()
 				}
 				self.IsInElection = false

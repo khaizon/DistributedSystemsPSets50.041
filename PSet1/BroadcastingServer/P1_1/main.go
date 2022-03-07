@@ -47,7 +47,7 @@ func client(data ClientData) {
 		select {
 		// message received from server
 		case msg := <-data.ReceivingChannel:
-			fmt.Printf("\n%v received from server by client %d\n", msg.Content, data.Id)
+			fmt.Printf("%v received from server by client %d\n", msg.Content, data.Id)
 
 		// random timeout to signal a send message
 		case <-timeout:
@@ -55,18 +55,17 @@ func client(data ClientData) {
 			sendCopy := make([]int, len(message))
 			copy(sendCopy, message)
 			data.SendingChannel <- Message{sendCopy, data.Id}
-			fmt.Printf("\nClient %d has sent %v\n", data.Id, sendCopy)
+			fmt.Printf("Client %d has sent %v\n", data.Id, sendCopy)
 		}
 	}
 }
 
 func server(data ServerData) {
 	eventChannel := make(chan Event, 10)
-	var eventsLog []Event
 	for {
 		select {
 		case messageReceived := <-data.ReceivingChannel:
-			fmt.Printf("\n%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
+			fmt.Printf("%v received from Client %v\n", messageReceived.Content, messageReceived.Sender)
 
 			//add delay for broadcast
 			broadcastDelay := time.Millisecond * (time.Duration(rand.Intn(9000) + 1000))
@@ -74,8 +73,7 @@ func server(data ServerData) {
 			go broadcast(broadcastInput)
 
 		case eventReceived := <-eventChannel:
-			fmt.Printf("\nEvent Log: Server sent %v to Client %v\n", eventReceived.Content, eventReceived.Receiver)
-			eventsLog = append(eventsLog, eventReceived)
+			fmt.Printf("Event Log: Server sent %v to Client %v\n", eventReceived.Content, eventReceived.Receiver)
 		}
 
 	}
@@ -83,7 +81,7 @@ func server(data ServerData) {
 
 func broadcast(input ServerBroadcastInput) {
 	<-time.After(input.Delay)
-	fmt.Print("\nStarting to broadcast message from Server\n")
+	fmt.Print("Starting to broadcast message from Server\n")
 	for i := 0; i < len(input.Clients); i++ {
 		if input.Clients[i].Id == input.Message.Sender {
 			continue
@@ -106,7 +104,7 @@ func main() {
 			break
 		}
 		if numberOfClients, err := strconv.Atoi(input); err == nil {
-			fmt.Printf("\n%q looks like a number. Creating %q clients. Press ENTER again to stop processes\n", input, input)
+			fmt.Printf("%q looks like a number. Creating %q clients. Press ENTER again to stop processes\n", input, input)
 			processStarted = true
 
 			var serverRecevingChannel = make(chan Message, int(numberOfClients))

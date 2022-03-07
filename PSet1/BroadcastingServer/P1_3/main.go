@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,8 @@ type ClientData struct {
 	SendingChannel   chan Message
 	ReceivingChannel chan Message
 	NumberOfClients  int
+	Terminate        chan *sync.WaitGroup
+	ReportMutex      *sync.Mutex
 }
 
 type ServerData struct {
@@ -75,6 +78,21 @@ func client(data ClientData) {
 			for _, msg := range messagesToBeRead {
 				fmt.Printf("\nClock: %v, Message: %v", msg.Clock, msg.Content)
 			}
+		case wg := <-data.Terminate:
+			(*data.ReportMutex).Lock()
+			fmt.Printf("\n\n--------- CLIENT %v REPORT ------------", data.Id)
+			sort.Slice(messagesToBeRead[:], func(i, j int) bool {
+				return compareVectors(messagesToBeRead[i].Clock, messagesToBeRead[j].Clock)
+			})
+			fmt.Printf("\nTotal Order for Client %v:", data.Id)
+			for _, msg := range messagesToBeRead {
+				fmt.Printf("\nClock: %v, Message: %v", msg.Clock, msg.Content)
+			}
+			fmt.Printf("\n-------- END OF CLIENT %v REPORT ------", data.Id)
+			(*data.ReportMutex).Unlock()
+			(*wg).Done()
+			fmt.Printf("\n%v : Terminating", data.Id)
+			return
 		}
 	}
 }
@@ -101,13 +119,12 @@ func server(data ServerData) {
 		select {
 		case messageReceived := <-data.ReceivingChannel:
 			fmt.Printf("\n%v received from Client %v", messageReceived.Content, messageReceived.Sender)
-			var internalClockCopy = make([]float64, cap(data.ClientsData)+1)
-			var messageClockCopy = make([]float64, cap(data.ClientsData)+1)
 
-			copy(internalClockCopy, clock)
-			copy(messageClockCopy, messageReceived.Clock)
-			clock = vectorMax(internalClockCopy, messageClockCopy)
+			var tempClockCopy = make([]float64, cap(data.ClientsData)+1)
+			clock = vectorMax(clock, messageReceived.Clock)
 			clock[Id] += 1
+			copy(tempClockCopy, clock)
+			messageReceived.Clock = tempClockCopy
 
 			//add delay for broadcast
 			broadcastDelay := time.Millisecond * (time.Duration(rand.Intn(9000) + 1000))
@@ -145,24 +162,43 @@ func broadcast(input ServerBroadcastInput) {
 
 func main() {
 	var processStarted = false
+	var numberOfClients int
+	var err error
+	var serverRecevingChannel chan Message
+	var serverBroadcastingChannels []chan Message
+	var clientTerminatingChannels []chan *sync.WaitGroup
+	var clientArray []ClientData
+	var reportMutex sync.Mutex
+
 	for {
 		if !processStarted {
 			fmt.Printf("Hi Prof! Please input number of clients> ")
 		}
 		var input string
+		var wg sync.WaitGroup
+
 		fmt.Scanln(&input)
 		if processStarted {
+			//next Enter key press terminates all clients
+			for i := 0; i < numberOfClients; i++ {
+				wg.Add(1)
+				clientTerminatingChannels[i] <- &wg
+			}
+			wg.Wait() //wait for all clients to terminate
 			break
 		}
-		if numberOfClients, err := strconv.Atoi(input); err == nil {
+		if numberOfClients, err = strconv.Atoi(input); err == nil {
 			fmt.Printf("\n%q looks like a number. Creating %q clients. Press ENTER again to stop processes", input, input)
 			processStarted = true
 
-			var serverRecevingChannel = make(chan Message, int(numberOfClients))
-			var serverBroadcastingChannels = make([]chan Message, int(numberOfClients))
-			var clientArray = make([]ClientData, int(numberOfClients))
+			serverRecevingChannel = make(chan Message, int(numberOfClients))
+			serverBroadcastingChannels = make([]chan Message, int(numberOfClients))
+			clientTerminatingChannels = make([]chan *sync.WaitGroup, int(numberOfClients))
+			clientArray = make([]ClientData, int(numberOfClients))
 			for i := 0; i < int(numberOfClients); i++ {
 				serverBroadcastingChannels[i] = make(chan Message, 10)
+				clientTerminatingChannels[i] = make(chan *sync.WaitGroup, 10)
+
 			}
 			for i := 0; i < int(numberOfClients); i++ {
 				clientData := ClientData{
@@ -170,6 +206,8 @@ func main() {
 					SendingChannel:   serverRecevingChannel,
 					ReceivingChannel: serverBroadcastingChannels[i],
 					NumberOfClients:  int(numberOfClients),
+					Terminate:        clientTerminatingChannels[i],
+					ReportMutex:      &reportMutex,
 				}
 				go client(clientData)
 				clientArray[i] = clientData
@@ -181,4 +219,5 @@ func main() {
 			})
 		}
 	}
+	fmt.Print("\nProgram Ended\n")
 }
