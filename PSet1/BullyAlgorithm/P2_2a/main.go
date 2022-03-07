@@ -21,7 +21,6 @@ type MachineData struct {
 	Coordinator      int            //Current coordinator among other machines
 	IsDown           bool           //either Down or Up state
 	Channels         []chan Message //Receiving channels for the machines
-	IsSender         bool           //whether this machine will be be down for bully algorithm to start
 	IsInElection     bool           //Whether there is currently an election
 	NumberOfMachines int            //Number of machines to communicate with
 	Terminate        chan int
@@ -32,51 +31,38 @@ type Message struct {
 	Type   MessageType // 4 Types: (1) Hello, (2) RejectCoordinator (3) RequestToBeCoordinator (4) reject coordinator
 }
 
-const numberOfMachines = 5
+const numberOfMachines = 6
 
 func main() {
 	processStarted := false
 	for {
 		if !processStarted {
-			fmt.Printf("Hi Prof! Please best(b) or worst (w) case> ")
+			fmt.Printf("Press enter to start. Press enter again to stop.")
 		}
 		channels := make([]chan Message, numberOfMachines)
 		terminationChannels := make([]chan int, numberOfMachines)
+
+		var input string
+
+		fmt.Scanln(&input)
+		if processStarted {
+			break
+		}
+		fmt.Print("\nstarting...\n")
+		processStarted = true
+
 		for i := 0; i < numberOfMachines; i++ {
 			channels[i] = make(chan Message, 10*numberOfMachines)
 			terminationChannels[i] = make(chan int, numberOfMachines)
 		}
 
-		var input string
-		var sender int
-
-		fmt.Scanln(&input)
-		if processStarted {
-			for i := 0; i < numberOfMachines; i++ {
-				terminationChannels[i] <- 0
-			}
-			time.Sleep(2 * time.Second)
-			break
-		}
-		//if best case, then isSender is true for client n-1
-		if input == "b" {
-			fmt.Print("best case scenario selected\n")
-			sender = numberOfMachines - 2
-		} else {
-			fmt.Print("worst case scenario selected\n")
-			//if worst case, then isSender is true for client 1 (or 0)
-			sender = 0
-		}
-		processStarted = true
-
 		for i := 0; i < numberOfMachines; i++ {
 			go machine(MachineData{
 				Id:               i,
 				Timeout:          4,
-				Coordinator:      4,
+				Coordinator:      numberOfMachines - 1,
 				IsDown:           i == numberOfMachines-1,
 				Channels:         channels,
-				IsSender:         i == sender,
 				Terminate:        terminationChannels[i],
 				NumberOfMachines: numberOfMachines,
 			})
@@ -104,11 +90,10 @@ func machine(self MachineData) {
 
 		select {
 		case <-self.Terminate:
-			ticker.Stop()
 			fmt.Printf("%v : Terminating now\n", self.Id)
 			return
 		case <-ticker.C:
-			if !self.IsInElection && self.IsSender {
+			if !self.IsInElection {
 				fmt.Printf("%v : regular ping checks\n", self.Id)
 				if self.Id != self.Coordinator {
 					self.Channels[self.Coordinator] <- Message{Sender: self.Id, Type: Hello}
@@ -155,7 +140,15 @@ func machine(self MachineData) {
 							continue //no need to broadcast to self
 						}
 						self.Channels[i] <- Message{Sender: self.Id, Type: NewCoordinator}
+						if i == 2 && self.Id == numberOfMachines-2 {
+							//random failure when announcing
+							//machine 0,1,2 will know that machine 4 being the coordinator but not machine 3.
+							fmt.Printf("%v : dying before broadcasting to machine %v\n", self.Id, i+1)
+							self.IsDown = true
+							break
+						}
 					}
+					self.IsInElection = false
 				}
 				if self.Coordinator != self.Id {
 					//Election failed do nothing
@@ -201,9 +194,7 @@ func machine(self MachineData) {
 				fmt.Printf("%v : new coordinator is  %v\n", self.Id, self.Coordinator)
 				self.IsInElection = false
 			}
-
 		}
-
 	}
 }
 

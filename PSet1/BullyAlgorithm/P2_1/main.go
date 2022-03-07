@@ -42,32 +42,28 @@ func main() {
 		}
 		channels := make([]chan Message, numberOfMachines)
 		terminationChannels := make([]chan int, numberOfMachines)
+		for i := 0; i < numberOfMachines; i++ {
+			channels[i] = make(chan Message, 10*numberOfMachines)
+			terminationChannels[i] = make(chan int, numberOfMachines)
+		}
 
 		var input string
 		var sender int
 
 		fmt.Scanln(&input)
 		if processStarted {
-			for i := 0; i < numberOfMachines; i++ {
-				terminationChannels[i] <- 0
-			}
 			break
 		}
 		//if best case, then isSender is true for client n-1
 		if input == "b" {
 			fmt.Print("best case scenario selected\n")
 			sender = numberOfMachines - 2
-			processStarted = true
 		} else {
 			fmt.Print("worst case scenario selected\n")
 			//if worst case, then isSender is true for client 1 (or 0)
 			sender = 0
-			processStarted = true
 		}
-		for i := 0; i < numberOfMachines; i++ {
-			channels[i] = make(chan Message, 10*numberOfMachines)
-			terminationChannels[i] = make(chan int, numberOfMachines)
-		}
+		processStarted = true
 
 		for i := 0; i < numberOfMachines; i++ {
 			go machine(MachineData{
@@ -104,6 +100,7 @@ func machine(self MachineData) {
 
 		select {
 		case <-self.Terminate:
+			ticker.Stop()
 			fmt.Printf("%v : Terminating now\n", self.Id)
 			return
 		case <-ticker.C:
@@ -200,6 +197,7 @@ func machine(self MachineData) {
 				fmt.Printf("%v : new coordinator is  %v\n", self.Id, self.Coordinator)
 				self.IsInElection = false
 			}
+
 		}
 
 	}

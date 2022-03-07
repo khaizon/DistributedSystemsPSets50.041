@@ -52,15 +52,18 @@ func client(data ClientData) {
 			clock = vectorMax(internalClockCopy, messageClockCopy)
 			clock[data.Id] += 1
 
-		// random timeout to signal a send message
+			// random timeout to signal a send message
 		case <-time.After(time.Millisecond * (time.Duration(rand.Intn(15000) + 2000))):
 			message[data.Id] = message[data.Id] + 1
 			sendCopy := make([]int, len(message))
 			copy(sendCopy, message)
 
+			tempClockCopy := make([]float64, data.NumberOfClients+1)
 			clock[data.Id] += 1
-			data.SendingChannel <- Message{sendCopy, data.Id, clock}
-			fmt.Printf("\nClient %d has sent %v", data.Id, sendCopy)
+			copy(tempClockCopy, clock)
+
+			data.SendingChannel <- Message{sendCopy, data.Id, tempClockCopy}
+			fmt.Printf("\nClient %d has sent %v", data.Id, tempClockCopy)
 
 		//print the order of messages to be read every 15 + Id seconds
 		case <-time.After(time.Millisecond * time.Duration((data.Id+1)*1000+5500)):
