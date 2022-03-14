@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"sort"
 	"time"
@@ -43,20 +44,45 @@ const (
 	Idle
 )
 
-func main() {
+const (
+	NUM_OF_NODES = 11
+)
 
+func main() {
+	allChannels := make([]chan Message, NUM_OF_NODES)
+
+	for i := 0; i < NUM_OF_NODES; i++ {
+		allChannels[i] = make(chan Message, NUM_OF_NODES)
+	}
+
+	valueToAdd := 0
+
+	for i := 0; i < NUM_OF_NODES; i++ {
+		node := Node{
+			Id:               i,
+			Queue:            make([]int, 0),
+			State:            Idle,
+			ReceivingChannel: allChannels[i],
+			AllChannels:      allChannels,
+			Num:              &valueToAdd,
+			PriorityQueue:    make([]TimeStamp, 0),
+			WaitingArray:     make([]int, 0),
+		}
+
+		go node.start()
+	}
+
+	for {
+	}
 }
 
 func (n *Node) start() {
-	//1. node send to all other nodes to ask for lock
-	//2. node performs check on whether they can reply
-	//3. node waits for all replies until can execute critical section
 	for {
 		select {
 		case m := <-n.ReceivingChannel:
 			n.HandleRequest(m)
 		default:
-			if n.State == Idle || n.State == HasLock {
+			if n.State == Idle {
 				n.RandomLockRequest()
 			}
 		}
@@ -68,11 +94,13 @@ func (n *Node) ExecuteCriticalSection(num *int) {
 }
 
 func (n *Node) RandomLockRequest() {
-	time.Sleep(time.Second * time.Duration(rand.Intn(5)))
+	time.Sleep(time.Second * time.Duration(rand.Intn(3)))
 	n.State = WaitingForReplies
+	fmt.Printf("%v : requesting lock, waiting for replies\n", n.Id)
 	m := Message{
-		Sender: n.Id,
-		Type:   Acquire,
+		Sender:    n.Id,
+		Type:      Acquire,
+		TimeStamp: TimeStamp{n.Id, time.Now()},
 	}
 
 	for i := 0; i < cap(n.AllChannels); i++ {
@@ -90,13 +118,13 @@ func (n *Node) HandleRequest(m Message) {
 		n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
 		if m.TimeStamp.IsEarliest(n.PriorityQueue) {
 			//if earliest request in the queue, can reply
+			fmt.Printf("%v : earliest request received, sending reply\n", n.Id)
 			n.AllChannels[m.Sender] <- Message{
 				Sender:    n.Id,
 				Type:      AcknowledgeAcquire,
 				TimeStamp: TimeStamp{n.Id, time.Now()},
 			}
 		}
-		//sort the priority queue
 		sort.Slice(n.PriorityQueue, func(i, j int) bool {
 			return n.PriorityQueue[j].Time.After(n.PriorityQueue[i].Time)
 		})
@@ -105,16 +133,40 @@ func (n *Node) HandleRequest(m Message) {
 		n.WaitingArray = append(n.WaitingArray, m.Sender)
 		if len(n.WaitingArray) == cap(n.AllChannels)-1 {
 			n.State = HasLock
-			go n.ExecuteCriticalSection(n.Num)
+
+			fmt.Printf(`-----------------------------------------------------------------------------------
+----------%v : Has lock, executing critical section <Number to Add: %v>------------
+-----------------------------------------------------------------------------------
+`, n.Id, *n.Num)
+			n.ExecuteCriticalSection(n.Num)
 			n.WaitingArray = nil
 			n.Release()
+			fmt.Printf(`-----------------------------------------------------------------------------------
+--------%v : Executed critical section <Number to Add: %v> Releasing lock----------
+-----------------------------------------------------------------------------------
+`, n.Id, *n.Num)
+			n.State = Idle
 		}
 	case Release:
-		//pop sender's timestamp off the priority queue
-		for i := 0; i < len(n.PriorityQueue); i++ {
-			if n.PriorityQueue[i].Id == m.Sender {
-				n.PriorityQueue = append(n.PriorityQueue[:i], n.PriorityQueue[i+1:]...)
-			}
+		n.HandleRelease(m)
+	}
+}
+
+func (n *Node) HandleRelease(m Message) {
+	//pop sender's timestamp off the priority queue
+	for i := 0; i < len(n.PriorityQueue); i++ {
+		if n.PriorityQueue[i].Id == m.Sender {
+			n.PriorityQueue = append(n.PriorityQueue[:i], n.PriorityQueue[i+1:]...)
+		}
+	}
+
+	//check next earliest request, and reply to that.
+	stamp := n.PriorityQueue[0]
+	if stamp.IsEarliest(n.PriorityQueue) && stamp.Id != n.Id {
+		n.AllChannels[stamp.Id] <- Message{
+			Sender:    n.Id,
+			Type:      AcknowledgeAcquire,
+			TimeStamp: TimeStamp{n.Id, time.Now()},
 		}
 	}
 }
@@ -134,8 +186,13 @@ func (n *Node) Release() {
 
 //Checks whether current timestamp is earlier than all other timestamps in the array
 func (t *TimeStamp) IsEarliest(tArray []TimeStamp) bool {
-	for i := 0; i < cap(tArray); i++ {
+	for i := 0; i < len(tArray); i++ {
 		if t.Time.After(tArray[i].Time) {
+			return false
+		}
+
+		//tie breaker using Id
+		if t.Time.Equal(tArray[i].Time) && t.Id > tArray[i].Id {
 			return false
 		}
 	}
