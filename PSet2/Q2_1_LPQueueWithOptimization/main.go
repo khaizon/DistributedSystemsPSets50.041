@@ -116,8 +116,9 @@ func (n *Node) RandomLockRequest() {
 func (n *Node) HandleRequest(m Message) {
 	switch m.Type {
 	case Acquire:
-		//check whether there are any earlier requests in the priority queue
 		n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
+		//check whether there are any earlier requests in the priority queue
+		//AND that current node is not in critical section (or does not have lock)
 		if n.State != HasLock && m.TimeStamp.IsEarliest(n.PriorityQueue) {
 			//if earliest request in the queue, can reply
 			fmt.Printf("%v : request received, sending reply\n", n.Id)
