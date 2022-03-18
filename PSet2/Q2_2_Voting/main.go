@@ -13,6 +13,7 @@ type Node struct {
 	Queue            []int
 	State            StateType
 	HasVote          bool
+	VotedTo          int
 	ReceivingChannel chan Message
 	AllChannels      []chan Message
 	Num              *int
@@ -66,6 +67,8 @@ func main() {
 			Queue:            make([]int, 0),
 			State:            Idle,
 			ReceivingChannel: allChannels[i],
+			HasVote:          true,
+			VotedTo:          -1,
 			AllChannels:      allChannels,
 			Num:              &valueToAdd,
 			PriorityQueue:    make([]TimeStamp, 0),
@@ -74,9 +77,9 @@ func main() {
 
 		go node.start()
 	}
-
-	for {
-	}
+	var input string
+	fmt.Print("Press Enter to Stop")
+	fmt.Scanln(&input)
 }
 
 func (n *Node) start() {
@@ -98,22 +101,45 @@ func (n *Node) HandleRequest(m Message) {
 		n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
 		//check whether request is earliest in the priority queue:
 		// AND whether current node has a vote
-		if m.TimeStamp.IsEarliest(n.PriorityQueue) && !n.HasVote {
-			//vote for the earliest
-			fmt.Printf("%v : request received, voting\n", n.Id)
+		if m.TimeStamp.IsEarliest(n.PriorityQueue) {
+			if n.HasVote {
+				//vote for machine
+				fmt.Printf("%v : request received, voting\n", n.Id)
+				n.AllChannels[m.Sender] <- Message{
+					Sender:    n.Id,
+					Type:      Vote,
+					TimeStamp: TimeStamp{n.Id, time.Now()},
+				}
+				n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, m.Sender)
+				sort.Slice(n.PriorityQueue, func(i, j int) bool {
+					return n.PriorityQueue[j].Time.After(n.PriorityQueue[i].Time)
+				})
+				n.HasVote = false
+				n.VotedTo = m.Sender
+				break
+			}
+			// if no vote and timestamp is earliest
+			fmt.Printf("%v : request received, rescinding vote\n", n.Id)
 			n.AllChannels[m.Sender] <- Message{
-				Sender:    n.Id,
-				Type:      Vote,
+				Sender:    n.VotedTo,
+				Type:      RescindVote,
 				TimeStamp: TimeStamp{n.Id, time.Now()},
 			}
 			n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, m.Sender)
+			sort.Slice(n.PriorityQueue, func(i, j int) bool {
+				return n.PriorityQueue[j].Time.After(n.PriorityQueue[i].Time)
+			})
 		}
-		sort.Slice(n.PriorityQueue, func(i, j int) bool {
-			return n.PriorityQueue[j].Time.After(n.PriorityQueue[i].Time)
-		})
-
 	case Vote:
-		//Check whether has majority
+		if n.State == Idle {
+			//release vote
+			n.AllChannels[m.Sender] <- Message{
+				Sender: n.Id,
+				Type:   ReleaseVote,
+			}
+			break
+		}
+
 		//compute value of majority
 		majorityValue := int(math.Floor(float64(cap(n.AllChannels))/2) + 1)
 		n.WaitingArray = append(n.WaitingArray, m.Sender)
@@ -128,7 +154,6 @@ func (n *Node) HandleRequest(m Message) {
 -----------------------------------------------------------------------------------
 `, n.Id, *n.Num)
 			n.ExecuteCriticalSection(n.Num)
-			n.WaitingArray = nil
 			fmt.Printf(`-----------------------------------------------------------------------------------
 --------%v : Executed critical section <Number to Add: %v> Releasing lock----------
 -----------------------------------------------------------------------------------
@@ -138,6 +163,30 @@ func (n *Node) HandleRequest(m Message) {
 		} else {
 			fmt.Printf("%v : waiting for %v more replies\n", n.Id, majorityValue-len(n.WaitingArray))
 			fmt.Printf("%v : waiting array %v \n", n.Id, n.WaitingArray)
+		}
+	case ReleaseVote:
+		n.HasVote = true
+		//vote if there is a request waiting in the queue
+		if len(n.PriorityQueue) > 0 {
+			stamp := n.PriorityQueue[0]
+			n.AllChannels[stamp.Id] <- Message{
+				Sender: n.Id,
+				Type:   Vote,
+			}
+			n.VotedTo = stamp.Id
+			n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, stamp.Id)
+		}
+	case RescindVote:
+		//remove vote and release
+		for i := 0; i < len(n.WaitingArray); i++ {
+			if i == m.Sender {
+				n.WaitingArray = append(n.WaitingArray[:i], n.WaitingArray[i+1:]...)
+				break
+			}
+		}
+		n.AllChannels[m.Sender] <- Message{
+			Sender: n.Id,
+			Type:   ReleaseVote,
 		}
 	}
 }
@@ -165,27 +214,22 @@ func (n *Node) RandomLockRequest() {
 func (n *Node) ReleaseAndReply() {
 	//pop self's timestamp off the priority queue
 	n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, n.Id)
-
-	//reply to earliest all time stamps in the queue.
-	temp := len(n.PriorityQueue)
-	if temp > 0 {
-		stamp := n.PriorityQueue[0]
-		n.AllChannels[stamp.Id] <- Message{
-			Sender:    n.Id,
-			Type:      Vote,
-			TimeStamp: TimeStamp{n.Id, time.Now()},
+	//release vote to those who voted for me
+	for i := 0; i < len(n.WaitingArray); i++ {
+		n.AllChannels[n.WaitingArray[i]] <- Message{
+			Sender: n.Id,
+			Type:   ReleaseVote,
 		}
-		n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, stamp.Id)
 	}
-	for i := 0; i < temp; i++ {
+	// clear waiting array
+	n.WaitingArray = nil
+
+	//cast vote to first machine in the priority queue
+	if len(n.PriorityQueue) > 0 {
 		stamp := n.PriorityQueue[0]
-		if stamp.Id == n.Id {
-			continue
-		}
 		n.AllChannels[stamp.Id] <- Message{
-			Sender:    n.Id,
-			Type:      Vote,
-			TimeStamp: TimeStamp{n.Id, time.Now()},
+			Sender: n.Id,
+			Type:   Vote,
 		}
 		n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, stamp.Id)
 	}
