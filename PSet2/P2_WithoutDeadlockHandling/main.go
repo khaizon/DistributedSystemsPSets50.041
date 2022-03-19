@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"sort"
 	"time"
 )
@@ -16,7 +15,6 @@ type Node struct {
 	Queue            []int
 	State            StateType
 	HasVote          bool
-	VotedTo          TimeStamp
 	ReceivingChannel chan Message
 	AllChannels      []chan Message
 	Num              *int
@@ -41,7 +39,6 @@ type StateType int
 const (
 	Acquire MessageType = iota
 	Vote
-	ReleaseLock
 	ReleaseVote
 	RescindVote
 )
@@ -166,7 +163,7 @@ func (n *Node) start() {
 			for i := 0; i < len(n.PriorityQueue); i++ {
 				temp = append(temp, n.PriorityQueue[i].Id)
 			}
-			fmt.Printf("%v : vote with : %v\n time stamp: %v\n state: %v\n wait queue: %v\n", n.Id, n.VotedTo.Id, n.VotedTo.Time, n.State, n.VotesReceived)
+			fmt.Printf("%v : state: %v\n wait queue: %v\n Priority Queue: %v\n", n.Id, n.State, n.VotesReceived, n.PriorityQueue)
 		default:
 			if n.State == Idle {
 				n.RandomLockRequest()
@@ -180,13 +177,12 @@ func (n *Node) HandleRequest(m Message) {
 	case Acquire:
 		//check whether request is the earlist known request
 		//if earliest, vote or rescind current vote
+		fmt.Printf("%v : acquire request from %v. Has VOte: %v. message is earliest: %v \n", n.Id, m.Sender, n.HasVote, m.TimeStamp.IsEarliest(n.PriorityQueue))
 		if m.TimeStamp.IsEarliest(n.PriorityQueue) {
-			fmt.Printf("%v : currently voted to %v. New Request %v\n", n.Id, n.VotedTo, m.TimeStamp)
 			if n.HasVote {
 				fmt.Printf("%v : has vote. Voting for %v\n", n.Id, m.Sender)
 				n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Vote}
 				n.HasVote = false
-				n.VotedTo = m.TimeStamp
 			} else {
 				fmt.Printf("%v : rescinding from %v\n", n.Id, n.PriorityQueue[0].Id)
 				n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: RescindVote}
@@ -209,35 +205,22 @@ func (n *Node) HandleRequest(m Message) {
 	case ReleaseVote:
 		//check whether there are others to vote for
 		//if not then do nothing
+		n.PriorityQueue = n.PriorityQueue[1:]
 		n.HasVote = true
 		n.PriorityQueue = SortQueue(n.PriorityQueue)
 		if len(n.PriorityQueue) > 0 {
 			stamp := n.PriorityQueue[0]
-			fmt.Printf("%v : vote was released. Voting for %v\n", n.Id, stamp.Id)
+			fmt.Printf("%v : vote was released by %v. Voting for %v\n", n.Id, m.Sender, stamp.Id)
 			n.AllChannels[stamp.Id] <- Message{Sender: n.Id, Type: Vote}
 			n.HasVote = false
-			n.VotedTo = stamp
 		}
 		break
-	case ReleaseLock:
-		n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, m.Sender)
-		n.HasVote = true
-		if len(n.PriorityQueue) > 0 {
-			stamp := n.PriorityQueue[0]
-			fmt.Printf("%v : lock was released. Voting for %v\n", n.Id, stamp.Id)
-			n.AllChannels[stamp.Id] <- Message{Sender: n.Id, Type: Vote}
-			n.HasVote = false
-			n.VotedTo = stamp
-		}
 	case Vote:
 		//if node is in idle mode, release vote
 		//add to array of votes recieved
 		if n.State == Idle {
-			fmt.Printf("%v : In state: %v.releasing vote to %v\n", n.Id, n.State, m.Sender)
-			n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: ReleaseLock}
-			break
+			n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: ReleaseVote}
 		}
-
 		//compute value of majority
 		majorityValue := int(math.Floor(float64(cap(n.AllChannels))/2) + 1)
 		if Contains(n.VotesReceived, m.Sender) {
@@ -256,7 +239,7 @@ func (n *Node) HandleRequest(m Message) {
 			n.ExecuteCriticalSection(n.Num)
 			//release votes
 			for i := 0; i < len(n.VotesReceived); i++ {
-				n.AllChannels[n.VotesReceived[i]] <- Message{Sender: n.Id, Type: ReleaseLock}
+				n.AllChannels[n.VotesReceived[i]] <- Message{Sender: n.Id, Type: ReleaseVote}
 			}
 			n.VotesReceived = nil
 			n.State = Idle
@@ -265,7 +248,7 @@ func (n *Node) HandleRequest(m Message) {
 }
 
 func (n *Node) RandomLockRequest() {
-	time.Sleep(time.Second * time.Duration(rand.Intn(3)))
+	// time.Sleep(time.Second * time.Duration(rand.Intn(3)))
 	n.State = WaitingForReplies
 	fmt.Printf("%v : requesting lock, waiting for replies\n", n.Id)
 	requestTimeStamp := TimeStamp{n.Id, int(time.Now().UnixMicro())}

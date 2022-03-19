@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"time"
 )
@@ -94,7 +93,7 @@ func (n *Node) ExecuteCriticalSection(num *int) {
 }
 
 func (n *Node) RandomLockRequest() {
-	time.Sleep(time.Second * time.Duration(rand.Intn(3)))
+	// time.Sleep(time.Second * time.Duration(rand.Intn(3)))
 	n.State = WaitingForReplies
 	fmt.Printf("%v : requesting lock, waiting for replies\n", n.Id)
 	requestTimeStamp := TimeStamp{n.Id, time.Now()}
@@ -127,7 +126,6 @@ func (n *Node) HandleRequest(m Message) {
 				Type:      AcknowledgeAcquire,
 				TimeStamp: TimeStamp{n.Id, time.Now()},
 			}
-			n.PriorityQueue = RemoveTimeStamp(n.PriorityQueue, m.Sender)
 		}
 		sort.Slice(n.PriorityQueue, func(i, j int) bool {
 			return n.PriorityQueue[j].Time.After(n.PriorityQueue[i].Time)
