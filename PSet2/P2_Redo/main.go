@@ -49,8 +49,10 @@ const (
 )
 
 const (
-	NUM_OF_NODES = 11
+	NUM_OF_NODES = 31
 )
+
+var start = make(chan struct{})
 
 func main() {
 	allChannels := make([]chan Message, NUM_OF_NODES)
@@ -76,6 +78,7 @@ func main() {
 
 		go node.start()
 	}
+	close(start)
 
 	var input string
 	fmt.Scanln(&input)
@@ -108,6 +111,7 @@ func (n *Node) ExecuteCriticalSection(num *int) {
 
 func (n *Node) RandomLockRequest() {
 	// time.Sleep(time.Second * time.Duration(rand.Intn(3)))
+	<-start
 	n.State = WaitingForvotes
 	fmt.Printf("%v : requesting lock, waiting for votes\n", n.Id)
 	requestTimeStamp := TimeStamp{n.Id, time.Now().UnixNano()}
@@ -187,7 +191,7 @@ func (n *Node) HandleRequest(m Message) {
 		if n.State == HasLock {
 			break
 		}
-
+		n.WaitingArray = ArrayRemove(n.WaitingArray, m.Sender)
 		n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Release}
 	}
 }
@@ -235,4 +239,13 @@ func ArrayContains(arr []int, t int) bool {
 		}
 	}
 	return false
+}
+
+func ArrayRemove(arr []int, t int) []int {
+	for i := 0; i < len(arr); i++ {
+		if arr[i] == t {
+			return append(arr[:i], arr[i+1:]...)
+		}
+	}
+	return arr
 }
