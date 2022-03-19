@@ -126,11 +126,6 @@ func (n *Node) HandleRequest(m Message) {
 			n.PriorityQueue = SortQueue(n.PriorityQueue)
 			break
 		}
-		if n.State == HasLock {
-			n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
-			n.PriorityQueue = SortQueue(n.PriorityQueue)
-			break
-		}
 
 		//else reply
 		n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Reply}
