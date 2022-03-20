@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,10 @@ type Node struct {
 	RequestTimeStamp TimeStamp
 	HasVote          bool
 	LastCompleted    TimeStamp
+	AllowedToRequest bool
+	WaitGroup        *sync.WaitGroup
+	Done             chan int
+	Start            chan struct{}
 }
 
 type Message struct {
@@ -40,6 +45,7 @@ const (
 	Vote
 	Release
 	Rescind
+	Kill
 )
 
 const (
@@ -49,10 +55,8 @@ const (
 )
 
 const (
-	NUM_OF_NODES = 31
+	NUM_OF_NODES = 11
 )
-
-var start = make(chan struct{})
 
 func main() {
 	allChannels := make([]chan Message, NUM_OF_NODES)
@@ -62,36 +66,59 @@ func main() {
 	}
 
 	valueToAdd := 0
+	for j := 1; j < NUM_OF_NODES+1; j++ {
+		var wg sync.WaitGroup
+		var start = make(chan struct{}, 0)
+		wg.Add(j)
+		for i := 0; i < NUM_OF_NODES; i++ {
+			node := Node{
+				Id:               i,
+				Queue:            make([]int, 0),
+				State:            Idle,
+				ReceivingChannel: allChannels[i],
+				AllChannels:      allChannels,
+				Num:              &valueToAdd,
+				PriorityQueue:    make([]TimeStamp, 0),
+				WaitingArray:     make([]int, 0),
+				HasVote:          true,
+				AllowedToRequest: i < j,
+				WaitGroup:        &wg,
+				Done:             make(chan int, 1),
+				Start:            start,
+			}
 
-	for i := 0; i < NUM_OF_NODES; i++ {
-		node := Node{
-			Id:               i,
-			Queue:            make([]int, 0),
-			State:            Idle,
-			ReceivingChannel: allChannels[i],
-			AllChannels:      allChannels,
-			Num:              &valueToAdd,
-			PriorityQueue:    make([]TimeStamp, 0),
-			WaitingArray:     make([]int, 0),
-			HasVote:          true,
+			go node.start()
 		}
-
-		go node.start()
+		t1 := time.Now().UnixMicro()
+		close(start)
+		wg.Wait()
+		fmt.Printf("%v out of %v concurrent requests done\n", j, NUM_OF_NODES)
+		t2 := time.Now().UnixMicro()
+		for i := 0; i < cap(allChannels); i++ {
+			allChannels[i] <- Message{Type: Kill}
+		}
+		fmt.Printf("Number of Nodes: %v,    Time taken: %v\n", j, t2-t1)
 	}
-	close(start)
 
 	var input string
 	fmt.Scanln(&input)
 }
 
 func (n *Node) start() {
+	requested := false
 	for {
 		select {
 		case m := <-n.ReceivingChannel:
+			if m.Type == Kill {
+				// fmt.Printf("%v : Killing self")
+				return
+			}
 			n.HandleRequest(m)
 		default:
-			if n.State == Idle {
+			if n.State == Idle && !requested && n.AllowedToRequest {
+				<-n.Start
 				n.RandomLockRequest()
+				requested = true
 			}
 		}
 	}
@@ -99,19 +126,18 @@ func (n *Node) start() {
 
 func (n *Node) ExecuteCriticalSection(num *int) {
 	fmt.Printf(`-----------------------------------------------------------------------------------
-----------%v : Has lock, executing critical section <Number to Add: %v>------------
+----------%v : Has lock, executing critical section <Number to Add: %v>-------------
 -----------------------------------------------------------------------------------
 `, n.Id, *num)
 	*num += 1
 	fmt.Printf(`-----------------------------------------------------------------------------------
---------%v : Executed critical section <Number to Add: %v> Releasing lock----------
+--------%v : Executed critical section <Number to Add: %v> Releasing lock-----------
 -----------------------------------------------------------------------------------
 `, n.Id, *num)
 }
 
 func (n *Node) RandomLockRequest() {
 	// time.Sleep(time.Second * time.Duration(rand.Intn(3)))
-	<-start
 	n.State = WaitingForvotes
 	fmt.Printf("%v : requesting lock, waiting for votes\n", n.Id)
 	requestTimeStamp := TimeStamp{n.Id, time.Now().UnixNano()}
@@ -174,6 +200,7 @@ func (n *Node) HandleRequest(m Message) {
 			}
 			n.WaitingArray = nil
 			n.State = Idle
+			n.WaitGroup.Done()
 		}
 	case Release:
 		n.HasVote = true
