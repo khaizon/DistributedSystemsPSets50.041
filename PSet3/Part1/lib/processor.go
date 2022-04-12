@@ -12,7 +12,8 @@ type Processor struct {
 	Channels           []chan Message
 	NumOfVariables     int
 	RequestMap         map[int]RequestStatus
-	Cache              map[int]struct { // {pageId: {isValid, Data}}
+	Cache              map[int]struct { // {pageId: {isOwner, isValid, Data}}
+		IsOwner bool
 		IsValid bool
 		Data    int
 	}
@@ -21,7 +22,7 @@ type Processor struct {
 
 func (p *Processor) Start() {
 	// ticker to make regular requests
-	reqTicker := time.NewTicker(2 * time.Second)
+	reqTicker := time.NewTicker(1 * time.Second)
 	for {
 		select {
 		case <-reqTicker.C:
@@ -32,17 +33,25 @@ func (p *Processor) Start() {
 				//don't make any request if pending reply
 				break
 			}
-			p.Cache[pageId] = struct {
-				IsValid bool
-				Data    int
-			}{true, p.Id}
+			if readOrWrite == 0 && p.Cache[pageId].IsOwner {
+				//don't make READ request if self is owner
+				break
+			}
+			if readOrWrite == 1 {
+				p.Cache[pageId] = struct {
+					IsOwner bool
+					IsValid bool
+					Data    int
+				}{true, true, p.Id}
+			}
 			p.CMRequestChan <- Message{ // make request
-				Sender: p.Id,
-				Type:   MessageType(readOrWrite), // 0 = readRequest, 1 = writeRequest
-				PageId: pageId,
+				Sender:  p.Id,
+				Type:    MessageType(readOrWrite), // 0 = readRequest, 1 = writeRequest
+				PageId:  pageId,
+				Content: p.Id,
 			}
 			p.RequestMap[pageId] = PendingRequestCompletion
-			p.log(true, "%v request sent for page Id %v", MESSAGE_TYPES[readOrWrite], pageId)
+			p.log(false, "%v request (%v) sent for page Id %v", MESSAGE_TYPES[readOrWrite], MessageType(readOrWrite), pageId)
 		case m := <-p.Channels[p.Id]:
 			p.log(true, "%v message received", MESSAGE_TYPES[m.Type])
 			p.HandleMessage(m)
@@ -51,10 +60,13 @@ func (p *Processor) Start() {
 }
 
 func (p *Processor) HandleMessage(m Message) {
+	p.log(true, "%v message (%v) from %v for pageId %v", MESSAGE_TYPES[m.Type], m.Type, m.Sender, m.PageId)
+
 	switch m.Type {
 	case WriteForward:
 		// invalidate my cache
 		p.Cache[m.PageId] = struct {
+			IsOwner bool
 			IsValid bool
 			Data    int
 		}{IsValid: false}
@@ -67,22 +79,27 @@ func (p *Processor) HandleMessage(m Message) {
 	case PageForward:
 		// send read confirmation to CM
 		p.Cache[m.PageId] = struct {
+			IsOwner bool
 			IsValid bool
 			Data    int
-		}{IsValid: true, Data: m.Content}
+		}{IsOwner: false, IsValid: true, Data: m.Content}
 		p.RequestMap[m.PageId] = Idle
-		p.CMConfirmationChan <- Message{Type: WriteConfirmation, PageId: m.PageId}
+		p.CMConfirmationChan <- Message{Sender: p.Id, Type: ReadConfirmation, PageId: m.PageId}
 	case InvalidateCopy:
 		// update cache map
 		p.Cache[m.PageId] = struct {
+			IsOwner bool
 			IsValid bool
 			Data    int
-		}{IsValid: false}
-		p.CMConfirmationChan <- Message{Type: InvalidateConfirmation, PageId: m.PageId}
+		}{IsOwner: false, IsValid: false}
+		p.CMConfirmationChan <- Message{Sender: p.Id, Type: InvalidateConfirmation, PageId: m.PageId}
+		p.log(true, "cache for pageId %v invalidated", m.PageId)
 	case VariableForward:
 		// write to variable and send confirmation to CM
 		p.RequestMap[m.PageId] = Idle
-		p.CMConfirmationChan <- Message{Type: WriteConfirmation, PageId: m.PageId}
-
+		p.CMConfirmationChan <- Message{Sender: p.Id, Type: WriteConfirmation, PageId: m.PageId}
+	case PageNotFoundError:
+		p.log(true, "%v received, resetting request status to idle", MESSAGE_TYPES[PageNotFoundError])
+		p.RequestMap[m.PageId] = Idle
 	}
 }

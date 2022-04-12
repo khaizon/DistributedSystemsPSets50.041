@@ -4,8 +4,8 @@ type CentralManager struct {
 	PChannels           []chan Message
 	Incoming            chan Message
 	ConfirmationChan    chan Message
-	Entries             map[int]CMEntry  //{[pageId]: {CopyArray, Data}}
-	InvalidationCounter map[int]int      //{[pageId]: {number of confirmations}}
+	Entries             map[int]CMEntry  // {[pageId]: {CopyArray, Data}}
+	InvalidationCounter map[int]int      // {[pageId]: {number of confirmations}}
 	RequestMap          map[int]struct { // {[pageId] : {status, queue}}
 		Status RequestStatus
 		Queue  []Message
@@ -26,6 +26,8 @@ func (c *CentralManager) Start() {
 		case m := <-c.Incoming:
 			c.EnqueueRequest(m)
 		case m := <-c.ConfirmationChan:
+			c.log(false, "%v message (%v) from %v for pageId %v", MESSAGE_TYPES[m.Type], m.Type, m.Sender, m.PageId)
+
 			c.HandleMessage(m)
 		default:
 			for pageId := range c.RequestMap {
@@ -50,11 +52,14 @@ func (c *CentralManager) EnqueueRequest(m Message) {
 	}
 	pageStatus.Queue = append(pageStatus.Queue, m)
 	c.RequestMap[m.PageId] = pageStatus
-	c.log(true, "queued %v's request for pageId: %v", m.Sender, m.PageId)
+	c.log(true, "queued %v's request for pageId: %v. requestMap is %v", m.Sender, m.PageId, c.RequestMap)
 }
 
 func (c *CentralManager) HandleMessage(m Message) {
-	c.log(true, "%v message received from %v", MESSAGE_TYPES[m.Type], m.Sender)
+	c.log(true, "Request map is: %v", c.RequestMap)
+
+	c.log(true, "%v message (%v) from %v for pageId %v", MESSAGE_TYPES[m.Type], m.Type, m.Sender, m.PageId)
+
 	switch m.Type {
 	case WriteRequest:
 		// check status pageId: might be pending write request
@@ -68,15 +73,17 @@ func (c *CentralManager) HandleMessage(m Message) {
 		c.RequestMap[m.PageId] = pageStatus
 		//entry doesn't exist? send write
 		if _, ok := c.Entries[m.PageId]; !ok {
-			c.Entries[m.PageId] = CMEntry{CopyArray: []int{}, Owner: m.Sender}    //set new owner
-			c.PChannels[m.Sender] <- Message{Type: PageForward, PageId: m.PageId} //send the pageVariable to alow the write
+			c.Entries[m.PageId] = CMEntry{CopyArray: []int{}, Owner: m.Sender}        //set new owner
+			c.PChannels[m.Sender] <- Message{Type: VariableForward, PageId: m.PageId} //send the pageVariable to alow the write
 			c.log(true, "page variable sent to %v", m.Sender)
 			break
 		}
 		//invalidate copies? else send write forward
 		cmEntry := c.Entries[m.PageId]
+
 		if len(cmEntry.CopyArray) != 0 {
 			//send invalidate copies
+			c.InvalidationCounter[m.PageId] = len(cmEntry.CopyArray)
 			for i := 0; i < len(cmEntry.CopyArray); i++ {
 				go func(copyHolder int, channels []chan Message) {
 					channels[cmEntry.CopyArray[copyHolder]] <- Message{Type: InvalidateCopy, PageId: m.PageId}
@@ -97,22 +104,32 @@ func (c *CentralManager) HandleMessage(m Message) {
 			Sender: c.RequestMap[m.PageId].Queue[0].Sender,
 			Type:   WriteForward,
 			PageId: m.PageId} //send the writeForward request to owner
+
+		cmEntry.CopyArray = []int{}
+		c.Entries[m.PageId] = cmEntry
+		c.log(true, "Entry map: %v", c.Entries)
 	case ReadRequest:
 		pageStatus, ok := c.RequestMap[m.PageId]
 		if ok {
 			if pageStatus.Status != Idle {
+				c.log(true, "status not idle")
 				// exit if status is not idle - might be redundant
 				break
 			}
 		}
-		pageStatus.Status = PendingReadConfirmation
-		c.RequestMap[m.PageId] = pageStatus
-		//send read forward or error
 		cmEntry, ok := c.Entries[m.PageId]
 		if !ok {
 			c.log(false, "error, pagedId %v not found", m.PageId)
+			request, _ := c.RequestMap[m.PageId]
+			request.Queue = request.Queue[1:]
+			c.RequestMap[m.PageId] = request
+			c.PChannels[m.Sender] <- Message{Type: PageNotFoundError, PageId: m.PageId}
 			break
 		}
+		c.log(true, "valid read request")
+		pageStatus.Status = PendingReadConfirmation
+		c.RequestMap[m.PageId] = pageStatus
+		//send read forward or error
 		c.PChannels[cmEntry.Owner] <- Message{Sender: m.Sender, Type: ReadForward, PageId: m.PageId} //send the writeForward request to owner
 
 	case WriteConfirmation:
@@ -123,14 +140,16 @@ func (c *CentralManager) HandleMessage(m Message) {
 			break
 		}
 		// update owner
-		cmEntry.Owner = m.PageId
+		cmEntry.Owner = m.Sender
 		c.Entries[m.PageId] = cmEntry
 		//update request status for that pageId
 		request, ok := c.RequestMap[m.PageId]
-		request.Queue = MessageArrayRemove(request.Queue, m.Sender)
+		c.log(true, "request map before removing %v: %v", m.Sender, c.RequestMap)
+		request.Queue = request.Queue[1:]
 		request.Status = Idle
 		c.RequestMap[m.PageId] = request
-
+		c.log(true, "request map: %v", c.RequestMap)
+		c.log(false, "updated entries map to %v", c.Entries)
 	case ReadConfirmation:
 		//add to page map
 		cmEntry, ok := c.Entries[m.PageId]
@@ -141,9 +160,10 @@ func (c *CentralManager) HandleMessage(m Message) {
 		// update owner
 		cmEntry.CopyArray = append(cmEntry.CopyArray, m.Sender)
 		c.Entries[m.PageId] = cmEntry
+		c.log(false, "entry map %v ", c.Entries)
 		// set pageId request to Idle
 		request, ok := c.RequestMap[m.PageId]
-		request.Queue = MessageArrayRemove(request.Queue, m.Sender)
+		request.Queue = request.Queue[1:]
 		request.Status = Idle
 		c.RequestMap[m.PageId] = request
 	}

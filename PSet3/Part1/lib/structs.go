@@ -29,10 +29,8 @@ const (
 	WriteForward
 	VariableForward
 	WriteConfirmation
+	PageNotFoundError
 )
-
-const NUM_OF_VARIABLES = 10
-const NUM_OF_PROCESSORS = 1
 
 var MESSAGE_TYPES []string = []string{
 	"ReadRequest",
@@ -45,4 +43,5 @@ var MESSAGE_TYPES []string = []string{
 	"WriteForward",
 	"VariableForward",
 	"WriteConfirmation",
+	"PageNotFoundError",
 }

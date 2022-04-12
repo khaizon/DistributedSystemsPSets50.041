@@ -20,7 +20,7 @@ func (p *Processor) log(args ...interface{}) {
 
 func MessageArrayRemove(arr []Message, c int) []Message {
 	for i := 0; i < len(arr); i++ {
-		if i == c {
+		if arr[i].Sender == c {
 			return append(arr[:i], arr[i+1:]...)
 		}
 	}
