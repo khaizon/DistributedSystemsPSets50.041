@@ -1,12 +1,15 @@
 package lib
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
-func (c *CentralManager) log(args ...interface{}) {
+func (cm *CentralManager) log(args ...interface{}) {
 	debug := args[0].(bool)
 	mainString := args[1].(string)
-	if (c.Debug && debug) || !debug {
-		fmt.Printf("CM: %v\n", fmt.Sprintf(mainString, args[2:]...))
+	if (cm.Debug && debug) || !debug {
+		fmt.Printf("CM %v: %v\n", cm.Id, fmt.Sprintf(mainString, args[2:]...))
 	}
 }
 
@@ -25,4 +28,18 @@ func MessageArrayRemove(arr []Message, c int) []Message {
 		}
 	}
 	return arr
+}
+
+func (s *State) Clone() (State, error) {
+	currentStateJson, err := json.Marshal(s)
+	if err != nil {
+		return State{}, err
+	}
+
+	stateCopy := State{}
+	if err = json.Unmarshal(currentStateJson, &stateCopy); err != nil {
+		return State{}, err
+	}
+
+	return stateCopy, nil
 }
