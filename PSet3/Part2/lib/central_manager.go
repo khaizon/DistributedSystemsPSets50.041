@@ -253,6 +253,17 @@ func (cm *CentralManager) HandleElect(m Message) {
 	for i := range cm.PChannels {
 		cm.PChannels[i] <- Message{Sender: cm.Id, Type: ANNOUNCE_PRIMARY}
 	}
+	for pageId := range cm.CurrentState.RequestMap {
+		pageStatus := cm.CurrentState.RequestMap[pageId]
+		if len(pageStatus.Queue) == 0 {
+			continue
+		}
+		lastRequest := pageStatus.Queue[0]
+		if pageStatus.Status.State == PENDING_READ_COMPLETION && lastRequest.Type == READ_REQUEST {
+			pageOwner := cm.CurrentState.Entries[pageId].Owner
+			cm.PChannels[pageOwner] <- Message{Sender: lastRequest.Sender, Type: READ_FORWARD, PageId: pageId} //send the WRITE_FORWARD request to owner
+		}
+	}
 }
 
 func (cm *CentralManager) HandleForwardState(m Message) {
@@ -288,10 +299,13 @@ func (cm *CentralManager) LongestQueue() int {
 	maxSeenLength := 0
 	result := -1
 	for pageId := range cm.CurrentState.RequestMap {
-		if cm.CurrentState.RequestMap[pageId].Status.State == IDLE && len(cm.CurrentState.RequestMap[pageId].Queue) > maxSeenLength {
-
-			maxSeenLength = len(cm.CurrentState.RequestMap[pageId].Queue)
-			result = pageId
+		resStatus := cm.CurrentState.RequestMap[pageId]
+		if resStatus.Status.State == IDLE {
+			if len(resStatus.Queue) > maxSeenLength {
+				cm.log(false, "max length %v, status %v", len(resStatus.Queue), resStatus)
+				maxSeenLength = len(cm.CurrentState.RequestMap[pageId].Queue)
+				result = pageId
+			}
 		}
 	}
 	return result

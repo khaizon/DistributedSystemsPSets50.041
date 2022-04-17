@@ -237,7 +237,7 @@ func (p *Processor) HandleAnnouncePrimary(m Message) {
 		}
 
 		p.CentralManagers[p.PrimaryCM].Incoming <- requestStatus.Message
-		p.RequestMap[pageId] = RequestStatus{Timestamp: time.Now().UnixNano() + 2*int64(time.Second)*int64(p.TimeoutDur), State: requestStatus.State, Message: requestStatus.Message}
+		p.RequestMap[pageId] = RequestStatus{Timestamp: time.Now().UnixNano(), State: requestStatus.State, Message: requestStatus.Message}
 		go p.StartRequestTimer()
 	}
 }
