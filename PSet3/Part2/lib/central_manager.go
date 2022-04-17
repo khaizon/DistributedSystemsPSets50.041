@@ -284,4 +284,15 @@ func (cm *CentralManager) ForwardState() {
 	}
 }
 
-fun
+func (cm *CentralManager) LongestQueue() int {
+	maxSeenLength := 0
+	result := -1
+	for pageId := range cm.CurrentState.RequestMap {
+		if cm.CurrentState.RequestMap[pageId].Status.State == IDLE && len(cm.CurrentState.RequestMap[pageId].Queue) > maxSeenLength {
+
+			maxSeenLength = len(cm.CurrentState.RequestMap[pageId].Queue)
+			result = pageId
+		}
+	}
+	return result
+}
