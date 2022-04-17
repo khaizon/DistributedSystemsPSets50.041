@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 )
@@ -15,7 +16,9 @@ type Node struct {
 	Num              *int
 	PriorityQueue    []TimeStamp
 	WaitingArray     []int
-	Request          TimeStamp
+	RequestTimeStamp TimeStamp
+	HasVote          bool
+	LastCompleted    TimeStamp
 }
 
 type Message struct {
@@ -34,18 +37,22 @@ type StateType int
 
 const (
 	Acquire MessageType = iota
-	Reply
+	Vote
+	Release
+	Rescind
 )
 
 const (
-	HasLock StateType = iota
-	WaitingForReplies
-	Idle
+	Idle StateType = iota
+	WaitingForvotes
+	HasLock
 )
 
 const (
-	NUM_OF_NODES = 11
+	NUM_OF_NODES = 31
 )
+
+var start = make(chan struct{})
 
 func main() {
 	allChannels := make([]chan Message, NUM_OF_NODES)
@@ -66,10 +73,12 @@ func main() {
 			Num:              &valueToAdd,
 			PriorityQueue:    make([]TimeStamp, 0),
 			WaitingArray:     make([]int, 0),
+			HasVote:          true,
 		}
 
 		go node.start()
 	}
+	close(start)
 
 	var input string
 	fmt.Scanln(&input)
@@ -90,22 +99,23 @@ func (n *Node) start() {
 
 func (n *Node) ExecuteCriticalSection(num *int) {
 	fmt.Printf(`-----------------------------------------------------------------------------------
-----------%v : Has lock, executing critical section <Number to Add: %v>------------
+----------%v : Has lock, executing critical section <Number to Add: %v>-------------
 -----------------------------------------------------------------------------------
 `, n.Id, *num)
 	*num += 1
 	fmt.Printf(`-----------------------------------------------------------------------------------
---------%v : Executed critical section <Number to Add: %v> Releasing lock----------
+--------%v : Executed critical section <Number to Add: %v> Releasing lock-----------
 -----------------------------------------------------------------------------------
 `, n.Id, *num)
 }
 
 func (n *Node) RandomLockRequest() {
 	// time.Sleep(time.Second * time.Duration(rand.Intn(3)))
-	n.State = WaitingForReplies
-	fmt.Printf("%v : requesting lock, waiting for replies\n", n.Id)
+	<-start
+	n.State = WaitingForvotes
+	fmt.Printf("%v : requesting lock, waiting for votes\n", n.Id)
 	requestTimeStamp := TimeStamp{n.Id, time.Now().UnixNano()}
-	n.Request = requestTimeStamp
+	n.RequestTimeStamp = requestTimeStamp
 	m := Message{
 		Sender:    n.Id,
 		Type:      Acquire,
@@ -120,36 +130,69 @@ func (n *Node) RandomLockRequest() {
 func (n *Node) HandleRequest(m Message) {
 	switch m.Type {
 	case Acquire:
-		//if waiting for reply, compare to own request time
-		if n.State == HasLock || n.State == WaitingForReplies && n.Request.IsSmaller(m.TimeStamp) {
-			n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
-			n.PriorityQueue = SortQueue(n.PriorityQueue)
+		if len(n.PriorityQueue) == 0 && n.HasVote {
+			//vote
+			fmt.Printf("%v : voting on request with no one waiting for %v \n", n.Id, m.TimeStamp)
+			n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Vote, TimeStamp: m.TimeStamp}
+			n.HasVote = false
+		} else
+		// if I have no vote and message is not the earliest request, add to priority queue
+		if m.TimeStamp.IsSmaller(n.PriorityQueue[0]) {
+			if n.HasVote {
+				//vote
+				fmt.Printf("%v : voting on request for %v \n", n.Id, m.TimeStamp)
+				n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Vote, TimeStamp: m.TimeStamp}
+				n.HasVote = false
+			} else {
+				//rescind
+				fmt.Printf("%v : rescinding from %v for %v\n", n.Id, n.PriorityQueue[0], m.TimeStamp)
+				n.AllChannels[n.PriorityQueue[0].Id] <- Message{Sender: n.Id, Type: Rescind}
+			}
+		}
+		n.PriorityQueue = append(n.PriorityQueue, m.TimeStamp)
+		n.PriorityQueue = SortQueue(n.PriorityQueue)
+	case Vote:
+		if n.State == Idle || n.LastCompleted == m.TimeStamp {
+			n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Release, TimeStamp: m.TimeStamp}
 			break
 		}
-
-		//else reply
-		n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Reply}
-
-	case Reply:
-		//If I receive a reply I will check whether I have a reply from every one
+		//If I receive a vote I will check whether I have a vote from every one
 		if ArrayContains(n.WaitingArray, m.Sender) {
 			fmt.Printf("%v : duplicate of %v found\n", n.Id, m.Sender)
 		}
 		n.WaitingArray = append(n.WaitingArray, m.Sender)
-		repliesRequired := cap(n.AllChannels)
-		fmt.Printf("%v : Reply received from %v. %v replies remaining. %v \n", n.Id, m.Sender, repliesRequired-len(n.WaitingArray), n.WaitingArray)
-		if len(n.WaitingArray) == repliesRequired {
+		votesRequired := int(math.Floor(float64(cap(n.AllChannels))/2) + 1)
+		fmt.Printf("%v : vote received from %v. %v votes remaining. %v \n", n.Id, m.Sender, votesRequired-len(n.WaitingArray), n.WaitingArray)
+
+		if len(n.WaitingArray) == votesRequired {
 			n.State = HasLock
 			n.ExecuteCriticalSection(n.Num)
-			//reply to everyone else
-			for i := 0; i < len(n.PriorityQueue); i++ {
-				n.AllChannels[n.PriorityQueue[i].Id] <- Message{Sender: n.Id, Type: Reply}
+			n.LastCompleted = m.TimeStamp
+			//vote to everyone else
+			for i := 0; i < len(n.WaitingArray); i++ {
+				n.AllChannels[n.WaitingArray[i]] <- Message{Sender: n.Id, Type: Release, TimeStamp: n.PriorityQueue[0]}
 			}
-			n.PriorityQueue = nil
 			n.WaitingArray = nil
 			n.State = Idle
 		}
-
+	case Release:
+		n.HasVote = true
+		if m.TimeStamp == n.PriorityQueue[0] {
+			n.PriorityQueue = n.PriorityQueue[1:]
+		}
+		if len(n.PriorityQueue) > 0 {
+			//Vote
+			fmt.Printf("%v : voting on release from %v for %v \n", n.Id, m.Sender, n.PriorityQueue[0])
+			n.AllChannels[n.PriorityQueue[0].Id] <- Message{Sender: n.Id, Type: Vote, TimeStamp: n.PriorityQueue[0]}
+			n.HasVote = false
+		}
+	case Rescind:
+		//release if not in critical section
+		if n.State == HasLock {
+			break
+		}
+		n.WaitingArray = ArrayRemove(n.WaitingArray, m.Sender)
+		n.AllChannels[m.Sender] <- Message{Sender: n.Id, Type: Release}
 	}
 }
 
@@ -196,4 +239,13 @@ func ArrayContains(arr []int, t int) bool {
 		}
 	}
 	return false
+}
+
+func ArrayRemove(arr []int, t int) []int {
+	for i := 0; i < len(arr); i++ {
+		if arr[i] == t {
+			return append(arr[:i], arr[i+1:]...)
+		}
+	}
+	return arr
 }

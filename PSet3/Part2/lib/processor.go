@@ -29,7 +29,8 @@ type PageCache struct {
 
 func (p *Processor) Start() {
 	// ticker to make regular requests
-	reqTicker := time.NewTicker(1 * time.Second)
+
+	reqTicker := time.NewTicker(time.Duration(rand.Intn(p.TimeoutDur * int(time.Second))))
 	p.TimeoutChan = make(chan int, p.NumOfVariables) //fault tolerant mod: add timeout to requests
 	for {
 		select {
@@ -160,6 +161,7 @@ func (p *Processor) HandleTimeout() {
 
 		//Check whether : currentTime >= requestTimestamp + timeoutDuration
 		if time.Now().UnixNano() >= requestState.Timestamp+int64(p.TimeoutDur*int(time.Second)) {
+			p.log(false, "timeout for pageId: %v, operation: %v", requestState.Message.PageId, requestState.Message.Type.toString())
 			p.StartElection()
 		}
 	}
@@ -204,7 +206,6 @@ func (p *Processor) HandleStartElection(m Message) {
 	if len(p.Channels) == p.Id+1 { //current channel has highest Id
 		//do something
 		for i := 0; i < len(p.CentralManagers); i++ {
-			p.AcknowledgementArray = nil
 			go func(n int) {
 				p.log(false, "test sending to CM%v", n)
 				p.CentralManagers[n].ConfirmationChan <- Message{Sender: p.Id, Type: CHECK_ALIVE}
@@ -212,19 +213,6 @@ func (p *Processor) HandleStartElection(m Message) {
 			}(i)
 			p.log(false, "before timeout")
 			go p.StartRequestTimer()
-			// select {
-			// case <-time.After(2 * time.Second):
-			// 	p.log(false, "test1")
-			// 	// probably dead, try next CM
-			// 	continue
-			// case reply := <-p.Channels[p.Id]:
-			// 	p.log(false, "reply received %v", reply)
-			// 	// Probably alive, double confirm Alive:
-			// 	if reply.Type == ACKNOWLEDGE {
-			// 		p.CentralManagers[i].ConfirmationChan <- Message{Sender: p.Id, Type: ELECT}
-			// 	}
-			// 	return
-			// }
 
 		}
 	}
@@ -249,7 +237,7 @@ func (p *Processor) HandleAnnouncePrimary(m Message) {
 		}
 
 		p.CentralManagers[p.PrimaryCM].Incoming <- requestStatus.Message
-		p.RequestMap[pageId] = RequestStatus{Timestamp: time.Now().UnixNano(), State: requestStatus.State, Message: requestStatus.Message}
+		p.RequestMap[pageId] = RequestStatus{Timestamp: time.Now().UnixNano() + 2*int64(time.Second)*int64(p.TimeoutDur), State: requestStatus.State, Message: requestStatus.Message}
 		go p.StartRequestTimer()
 	}
 }

@@ -6,9 +6,10 @@ import (
 	lib "main/lib"
 )
 
-const NUM_OF_VARIABLES = 4
+const NUM_OF_VARIABLES = 2
 const NUM_OF_PROCESSORS = 10
-const NUM_OF_CENTRAL_MANAGERS = 2
+const NUM_OF_CENTRAL_MANAGERS = 4
+const TIMEOUT_DURATION = 5
 
 func main() {
 	processorChannels := make([]chan lib.Message, NUM_OF_PROCESSORS)
@@ -28,7 +29,7 @@ func main() {
 			RequestMap:      map[int]lib.RequestStatus{},
 			Cache:           map[int]lib.PageCache{},
 			Debug:           false,
-			TimeoutDur:      5,
+			TimeoutDur:      TIMEOUT_DURATION,
 		}
 		go p.Start()
 	}
@@ -65,7 +66,7 @@ func startCentralManagers(numOfCentralMangers int, processorChannels []chan lib.
 			PChannels:        processorChannels,
 			IsPrimary:        i == 0,
 			Debug:            false,
-			CountDownToDeath: 100 + 200*i,
+			CountDownToDeath: 100 + 100*i,
 		}
 		cmArray[i] = &cm
 

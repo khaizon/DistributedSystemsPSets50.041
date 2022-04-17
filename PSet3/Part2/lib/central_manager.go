@@ -55,14 +55,16 @@ func (cm *CentralManager) Start() {
 			if !cm.IsPrimary {
 				break
 			}
-			for pageId := range cm.CurrentState.RequestMap {
-				if cm.CurrentState.RequestMap[pageId].Status.State == IDLE && len(cm.CurrentState.RequestMap[pageId].Queue) > 0 {
-					queuedMessage := cm.CurrentState.RequestMap[pageId].Queue[0]
-					cm.HandleMessage(queuedMessage)
-					cm.log(false, "handled")
-					cm.ForwardState()
-				}
+
+			pageId := cm.LongestQueue()
+			if pageId == -1 {
+				break
 			}
+			cm.log(false, "pageId: %v, requestMap: %v", pageId, cm.CurrentState.RequestMap[pageId].Queue)
+			queuedMessage := cm.CurrentState.RequestMap[pageId].Queue[0]
+			cm.HandleMessage(queuedMessage)
+			cm.log(false, "handled pageID : %v", pageId)
+			cm.ForwardState()
 		}
 	}
 }
@@ -281,3 +283,5 @@ func (cm *CentralManager) ForwardState() {
 		}(i)
 	}
 }
+
+fun
