@@ -3,6 +3,7 @@ package lib
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 func (cm *CentralManager) log(args ...interface{}) {
@@ -42,4 +43,16 @@ func (s *State) Clone() (State, error) {
 	}
 
 	return stateCopy, nil
+}
+
+func CheckDuplicate(arr []Message, m Message) bool {
+	/**
+	Checks whether message "m" exists in queue "arr"
+	*/
+	for i := range arr {
+		if reflect.DeepEqual(m, arr[i]) {
+			return true
+		}
+	}
+	return false
 }

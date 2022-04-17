@@ -77,6 +77,12 @@ func (cm *CentralManager) EnqueueRequest(m Message) {
 		}{Status: RequestStatus{State: IDLE}, Queue: []Message{m}}
 		return
 	}
+
+	if isDuplicate := CheckDuplicate(pageStatus.Queue, m); isDuplicate {
+		cm.log(false, "found duplicate request, dropping")
+		return
+	}
+
 	pageStatus.Queue = append(pageStatus.Queue, m)
 	cm.CurrentState.RequestMap[m.PageId] = pageStatus
 	cm.log(true, "queued %v's request for pageId: %v. requestMap is %v", m.Sender, m.PageId, cm.CurrentState.RequestMap)
