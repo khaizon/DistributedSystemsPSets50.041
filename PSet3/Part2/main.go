@@ -6,12 +6,12 @@ import (
 	lib "main/lib"
 )
 
-const NUM_OF_VARIABLES = 6
-const NUM_OF_PROCESSORS = 4
-const NUM_OF_CENTRAL_MANAGERS = 2
+const NUM_OF_VARIABLES = 4
+const NUM_OF_PROCESSORS = 10
+const NUM_OF_CENTRAL_MANAGERS = 1
 
 func main() {
-	processorChannels := make([]chan lib.Message, 10*NUM_OF_PROCESSORS)
+	processorChannels := make([]chan lib.Message, NUM_OF_PROCESSORS)
 	for i := 0; i < NUM_OF_PROCESSORS; i++ {
 		processorChannels[i] = make(chan lib.Message, 10*NUM_OF_PROCESSORS)
 	}
@@ -28,6 +28,7 @@ func main() {
 			RequestMap:      map[int]lib.RequestStatus{},
 			Cache:           map[int]lib.PageCache{},
 			Debug:           false,
+			TimeoutDur:      3,
 		}
 		go p.Start()
 	}
@@ -61,9 +62,10 @@ func startCentralManagers(numOfCentralMangers int, processorChannels []chan lib.
 					Queue  []lib.Message
 				}{},
 			},
-			PChannels: processorChannels,
-			IsPrimary: i == 0,
-			Debug:     false,
+			PChannels:        processorChannels,
+			IsPrimary:        i == 0,
+			Debug:            false,
+			CountDownToDeath: 1000 + 200*i,
 		}
 		cmArray[i] = &cm
 

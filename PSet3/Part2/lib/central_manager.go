@@ -34,11 +34,12 @@ type CMEntry struct {
 
 func (cm *CentralManager) Start() {
 	cm.log(true, "starting %v", "test")
-	cm.Die = make(chan int, 5)
+	cm.Die = make(chan int, 20)
 	// ticker to make regular requests
 	for {
 		select {
 		case <-cm.Die:
+			cm.log(false, "dead")
 			return
 
 		case m := <-cm.Incoming:
@@ -54,11 +55,11 @@ func (cm *CentralManager) Start() {
 			if !cm.IsPrimary {
 				break
 			}
-
 			for pageId := range cm.CurrentState.RequestMap {
-				if cm.CurrentState.RequestMap[pageId].Status == IDLE && len(cm.CurrentState.RequestMap[pageId].Queue) > 0 {
+				if cm.CurrentState.RequestMap[pageId].Status.State == IDLE && len(cm.CurrentState.RequestMap[pageId].Queue) > 0 {
 					queuedMessage := cm.CurrentState.RequestMap[pageId].Queue[0]
 					cm.HandleMessage(queuedMessage)
+					cm.log(false, "handled")
 					cm.ForwardState()
 				}
 			}
@@ -73,7 +74,7 @@ func (cm *CentralManager) EnqueueRequest(m Message) {
 		cm.CurrentState.RequestMap[m.PageId] = struct {
 			Status RequestStatus
 			Queue  []Message
-		}{Status: IDLE, Queue: []Message{m}}
+		}{Status: RequestStatus{State: IDLE}, Queue: []Message{m}}
 		return
 	}
 	pageStatus.Queue = append(pageStatus.Queue, m)
@@ -86,8 +87,10 @@ func (cm *CentralManager) HandleMessage(m Message) {
 	cm.log(true, "entry map when %v received is %v", m.Type.toString(), cm.CurrentState.Entries)
 	cm.log(true, "%v message (%v) from %v for pageId %v", m.Type.toString(), m.Type, m.Sender, m.PageId)
 
-	if cm.CountDownToDeath--; cm.CountDownToDeath <= 0 {
-		cm.Die <- 1
+	if cm.IsPrimary {
+		if cm.CountDownToDeath--; cm.CountDownToDeath <= 0 {
+			cm.Die <- 1
+		}
 	}
 
 	switch m.Type {
@@ -105,6 +108,8 @@ func (cm *CentralManager) HandleMessage(m Message) {
 		cm.HandleForwardState(m)
 	case ELECT:
 		cm.HandleElect(m)
+	case CHECK_ALIVE:
+		cm.PChannels[m.Sender] <- Message{Sender: cm.Id, Type: ACKNOWLEDGE}
 	}
 }
 
@@ -128,7 +133,7 @@ func (cm *CentralManager) HandleReadConfirmation(m Message) {
 	// set pageId request to IDLE
 	request, ok := cm.CurrentState.RequestMap[m.PageId]
 	request.Queue = request.Queue[1:]
-	request.Status = IDLE
+	request.Status = RequestStatus{State: IDLE}
 	cm.CurrentState.RequestMap[m.PageId] = request
 }
 
@@ -146,7 +151,7 @@ func (cm *CentralManager) HandleWriteConfirmation(m Message) {
 	request, ok := cm.CurrentState.RequestMap[m.PageId]
 	cm.log(false, "request map before removing %v: %v", m.Sender, cm.CurrentState.RequestMap)
 	request.Queue = request.Queue[1:]
-	request.Status = IDLE
+	request.Status = RequestStatus{State: IDLE}
 	cm.CurrentState.RequestMap[m.PageId] = request
 	cm.log(false, "request map: %v", cm.CurrentState.RequestMap)
 	cm.log(false, "updated entries map to %v", cm.CurrentState.Entries)
@@ -155,7 +160,7 @@ func (cm *CentralManager) HandleWriteConfirmation(m Message) {
 func (cm *CentralManager) HandleReadReqeuest(m Message) {
 	pageStatus, ok := cm.CurrentState.RequestMap[m.PageId]
 	if ok {
-		if pageStatus.Status != IDLE {
+		if pageStatus.Status.State != IDLE {
 			cm.log(true, "status not IDLE")
 			// exit if status is not IDLE - might be redundant
 			return
@@ -170,7 +175,7 @@ func (cm *CentralManager) HandleReadReqeuest(m Message) {
 		cm.PChannels[m.Sender] <- Message{Type: PAGE_NOT_FOUND, PageId: m.PageId}
 		return
 	}
-	pageStatus.Status = PENDING_READ_COMPLETION
+	pageStatus.Status = RequestStatus{State: PENDING_READ_COMPLETION}
 	cm.CurrentState.RequestMap[m.PageId] = pageStatus
 	//send read forward or error
 	cm.PChannels[cmEntry.Owner] <- Message{Sender: m.Sender, Type: READ_FORWARD, PageId: m.PageId} //send the WRITE_FORWARD request to owner
@@ -180,11 +185,11 @@ func (cm *CentralManager) HandleWriteRequest(m Message) {
 	// check status pageId: might be pending write request
 	pageStatus, ok := cm.CurrentState.RequestMap[m.PageId]
 	if ok {
-		if pageStatus.Status != IDLE {
+		if pageStatus.Status.State != IDLE {
 			return
 		}
 	}
-	pageStatus.Status = PENDING_WRITE_COMPLETION
+	pageStatus.Status = RequestStatus{State: PENDING_WRITE_COMPLETION}
 	cm.CurrentState.RequestMap[m.PageId] = pageStatus
 	//entry doesn't exist? send write
 	if _, ok := cm.CurrentState.Entries[m.PageId]; !ok {
@@ -235,8 +240,11 @@ func (cm *CentralManager) HandleInvalidateConfirmation(m Message) {
 
 func (cm *CentralManager) HandleElect(m Message) {
 	//update IsPrimary and acts as per normal
+	cm.log(false, "elected as new primary")
 	cm.IsPrimary = true
-	cm.PChannels[m.Sender] <- Message{Sender: cm.Id, Type: ACKNOWLEDGE}
+	for i := range cm.PChannels {
+		cm.PChannels[i] <- Message{Sender: cm.Id, Type: ANNOUNCE_PRIMARY}
+	}
 }
 
 func (cm *CentralManager) HandleForwardState(m Message) {
@@ -262,7 +270,8 @@ func (cm *CentralManager) ForwardState() {
 			// don't forward to self
 			continue
 		}
-
-		cm.CentralManagersConfirmation[i] <- Message{Type: FORWARD_STATE, State: stateBytes}
+		go func(n int) {
+			cm.CentralManagersConfirmation[n] <- Message{Type: FORWARD_STATE, State: stateBytes}
+		}(i)
 	}
 }

@@ -1,10 +1,15 @@
 package lib
 
-type RequestStatus int
+type RequestStatus struct {
+	Timestamp int64
+	State     RequestState
+	Message   Message
+}
+
+type RequestState int
 
 const (
-	IDLE RequestStatus = iota
-	PENDING_REQUEST_COMPLETION
+	IDLE RequestState = iota
 	PENDING_WRITE_COMPLETION
 	PENDING_READ_COMPLETION
 )
@@ -32,8 +37,12 @@ const (
 	WRITE_CONFIRMATION
 	PAGE_NOT_FOUND
 	FORWARD_STATE
+	START_ELECTION
+	CM_CHOSEN
 	ELECT
+	CHECK_ALIVE
 	ACKNOWLEDGE
+	ANNOUNCE_PRIMARY
 )
 
 func (m *MessageType) toString() string {
@@ -53,6 +62,10 @@ var MESSAGE_TYPES []string = []string{
 	"WRITE_CONFIRMATION",
 	"PAGE_NOT_FOUND",
 	"FORWARD_STATE",
+	"START_ELECTION",
+	"CM_CHOSEN",
 	"ELECT",
+	"CHECK_ALIVE",
 	"ACKNOWLEDGE",
+	"ANNOUNCE_PRIMARY",
 }
