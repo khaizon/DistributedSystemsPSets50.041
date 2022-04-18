@@ -1,12 +1,17 @@
 package lib
 
-type RequestStatus int
+type RequestStatus struct {
+	Timestamp int64
+	State     RequestState
+	Message   Message
+}
+
+type RequestState int
 
 const (
-	Idle RequestStatus = iota
-	PendingRequestCompletion
-	PendingWriteConfirmation
-	PendingReadConfirmation
+	IDLE RequestState = iota
+	PENDING_WRITE_COMPLETION
+	PENDING_READ_COMPLETION
 )
 
 type Message struct {
@@ -19,29 +24,47 @@ type Message struct {
 type MessageType int
 
 const (
-	ReadRequest MessageType = iota
-	WriteRequest
-	ReadForward
-	PageForward
-	ReadConfirmation
-	InvalidateCopy
-	InvalidateConfirmation
-	WriteForward
-	VariableForward
-	WriteConfirmation
-	PageNotFoundError
+	READ_REQUEST MessageType = iota
+	WRITE_REQUEST
+	READ_FORWARD
+	PAGE_COPY_FORWARD
+	READ_CONFIRMATION
+	INVALIDATE_COPY
+	INVALIDATE_CONFIRMATION
+	WRITE_FORWARD
+	PAGE_TO_WRITE
+	WRITE_CONFIRMATION
+	PAGE_NOT_FOUND
+	FORWARD_STATE
+	START_ELECTION
+	CM_CHOSEN
+	ELECT
+	CHECK_ALIVE
+	ACKNOWLEDGE
+	ANNOUNCE_PRIMARY
 )
 
+func (m *MessageType) toString() string {
+	return MESSAGE_TYPES[*m]
+}
+
 var MESSAGE_TYPES []string = []string{
-	"ReadRequest",
-	"WriteRequest",
-	"ReadForward",
-	"PageForward",
-	"ReadConfirmation",
-	"InvalidateCopy",
-	"InvalidateConfirmation",
-	"WriteForward",
-	"VariableForward",
-	"WriteConfirmation",
-	"PageNotFoundError",
+	"READ_REQUEST",
+	"WRITE_REQUEST",
+	"READ_FORWARD",
+	"PAGE_COPY_FORWARD",
+	"READ_CONFIRMATION",
+	"INVALIDATE_COPY",
+	"INVALIDATE_CONFIRMATION",
+	"WRITE_FORWARD",
+	"PAGE_TO_WRITE",
+	"WRITE_CONFIRMATION",
+	"PAGE_NOT_FOUND",
+	"FORWARD_STATE",
+	"START_ELECTION",
+	"CM_CHOSEN",
+	"ELECT",
+	"CHECK_ALIVE",
+	"ACKNOWLEDGE",
+	"ANNOUNCE_PRIMARY",
 }

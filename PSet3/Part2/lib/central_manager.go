@@ -1,6 +1,9 @@
 package lib
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type CentralManager struct {
 	Id                          int
@@ -35,11 +38,14 @@ type CMEntry struct {
 func (cm *CentralManager) Start() {
 	cm.log(true, "starting %v", "test")
 	cm.Die = make(chan int, 20)
+	startTime := time.Now().UnixNano()
+
 	// ticker to make regular requests
 	for {
 		select {
 		case <-cm.Die:
 			cm.log(false, "dead")
+			cm.log(false, "DIED -- Time Elapsed: %v ms", float32((time.Now().UnixNano()-startTime)/int64(time.Millisecond)))
 			return
 
 		case m := <-cm.Incoming:
@@ -191,12 +197,8 @@ func (cm *CentralManager) HandleReadReqeuest(m Message) {
 
 func (cm *CentralManager) HandleWriteRequest(m Message) {
 	// check status pageId: might be pending write request
-	pageStatus, ok := cm.CurrentState.RequestMap[m.PageId]
-	if ok {
-		if pageStatus.Status.State != IDLE {
-			return
-		}
-	}
+	pageStatus, _ := cm.CurrentState.RequestMap[m.PageId]
+
 	pageStatus.Status = RequestStatus{State: PENDING_WRITE_COMPLETION}
 	cm.CurrentState.RequestMap[m.PageId] = pageStatus
 	//entry doesn't exist? send write
@@ -261,7 +263,10 @@ func (cm *CentralManager) HandleElect(m Message) {
 		lastRequest := pageStatus.Queue[0]
 		if pageStatus.Status.State == PENDING_READ_COMPLETION && lastRequest.Type == READ_REQUEST {
 			pageOwner := cm.CurrentState.Entries[pageId].Owner
-			cm.PChannels[pageOwner] <- Message{Sender: lastRequest.Sender, Type: READ_FORWARD, PageId: pageId} //send the WRITE_FORWARD request to owner
+			cm.PChannels[pageOwner] <- Message{Sender: lastRequest.Sender, Type: READ_FORWARD, PageId: pageId} //send the READ_FORWARD request to owner
+		}
+		if pageStatus.Status.State == PENDING_WRITE_COMPLETION && lastRequest.Type == WRITE_REQUEST {
+			cm.HandleWriteRequest(lastRequest)
 		}
 	}
 }

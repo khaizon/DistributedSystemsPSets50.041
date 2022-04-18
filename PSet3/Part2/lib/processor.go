@@ -30,7 +30,7 @@ type PageCache struct {
 func (p *Processor) Start() {
 	// ticker to make regular requests
 
-	reqTicker := time.NewTicker(time.Duration(rand.Intn(p.TimeoutDur * int(time.Second))))
+	reqTicker := time.NewTicker(time.Duration(rand.Intn(2 * int(time.Second))))
 	p.TimeoutChan = make(chan int, p.NumOfVariables) //fault tolerant mod: add timeout to requests
 	for {
 		select {
@@ -196,12 +196,6 @@ func (p *Processor) HandleStartElection(m Message) {
 	p.AcknowledgementArray = nil
 	p.InElection = true
 	p.log(false, "starting election")
-
-	// for i := 0; i < len(p.CentralManagers); i++ {
-	// 	go func(n int) {
-	// 		p.CentralManagers[n].ConfirmationChan <- Message{Sender: p.Id, Type: CHECK_ALIVE}
-	// 	}(i)
-	// }
 
 	if len(p.Channels) == p.Id+1 { //current channel has highest Id
 		//do something

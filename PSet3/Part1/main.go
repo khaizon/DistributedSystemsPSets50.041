@@ -6,8 +6,10 @@ import (
 	lib "main/lib"
 )
 
-const NUM_OF_VARIABLES = 6
-const NUM_OF_PROCESSORS = 4
+const NUM_OF_VARIABLES = 4
+const NUM_OF_PROCESSORS = 10
+const TIMEOUT_DURATION = 5
+const TOTAL_CM_MESSAGES = 100
 
 func main() {
 	cmIncomingChan := make(chan lib.Message, 10*NUM_OF_PROCESSORS)
@@ -26,7 +28,8 @@ func main() {
 			Status lib.RequestStatus
 			Queue  []lib.Message
 		}{},
-		PChannels: processorChannels,
+		PChannels:        processorChannels,
+		CountDownToDeath: TOTAL_CM_MESSAGES,
 	}
 	go cm.Start()
 	for i := 0; i < NUM_OF_PROCESSORS; i++ {
@@ -42,7 +45,8 @@ func main() {
 				IsValid bool
 				Data    int
 			}{},
-			Debug: false,
+			Debug:      false,
+			TimeoutDur: TIMEOUT_DURATION,
 		}
 		go p.Start()
 	}

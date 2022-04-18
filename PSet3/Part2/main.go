@@ -6,7 +6,7 @@ import (
 	lib "main/lib"
 )
 
-const NUM_OF_VARIABLES = 2
+const NUM_OF_VARIABLES = 4
 const NUM_OF_PROCESSORS = 10
 const NUM_OF_CENTRAL_MANAGERS = 4
 const TIMEOUT_DURATION = 5
