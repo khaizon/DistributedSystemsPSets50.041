@@ -201,11 +201,11 @@ func (p *Processor) HandleStartElection(m Message) {
 		//do something
 		for i := 0; i < len(p.CentralManagers); i++ {
 			go func(n int) {
-				p.log(false, "test sending to CM%v", n)
+				p.log(true, "test sending to CM%v", n)
 				p.CentralManagers[n].ConfirmationChan <- Message{Sender: p.Id, Type: CHECK_ALIVE}
-				p.log(false, "test sent to CM%v", n)
+				p.log(true, "test sent to CM%v", n)
 			}(i)
-			p.log(false, "before timeout")
+			p.log(true, "before timeout")
 			go p.StartRequestTimer()
 
 		}
@@ -238,7 +238,7 @@ func (p *Processor) HandleAnnouncePrimary(m Message) {
 
 func (p *Processor) ElectNewCM() {
 	if len(p.AcknowledgementArray) == 0 {
-		p.log(false, "no responses gg ")
+		p.log(true, "no responses gg ")
 		return
 	}
 	newCM := p.AcknowledgementArray[0]

@@ -8,7 +8,7 @@ import (
 
 const NUM_OF_VARIABLES = 4
 const NUM_OF_PROCESSORS = 10
-const NUM_OF_CENTRAL_MANAGERS = 4
+const NUM_OF_CENTRAL_MANAGERS = 2
 const TIMEOUT_DURATION = 5
 
 func main() {
@@ -63,10 +63,12 @@ func startCentralManagers(numOfCentralMangers int, processorChannels []chan lib.
 					Queue  []lib.Message
 				}{},
 			},
-			PChannels:        processorChannels,
-			IsPrimary:        i == 0,
-			Debug:            false,
-			CountDownToDeath: 100 + 100*i,
+			PChannels:             processorChannels,
+			IsPrimary:             i == 0,
+			Debug:                 false,
+			CountDownToDeath:      100,
+			FinalCountDownToDeath: 1000,
+			IsAlive:               true,
 		}
 		cmArray[i] = &cm
 

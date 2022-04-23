@@ -17,7 +17,9 @@ type CentralManager struct {
 	Debug                       bool
 	IsAlive                     bool
 	CountDownToDeath            int
+	FinalCountDownToDeath       int
 	Die                         chan int
+	ReallyDie                   chan int
 }
 
 // State would be sent to the secondary replica everytime it updates its state
@@ -38,15 +40,22 @@ type CMEntry struct {
 func (cm *CentralManager) Start() {
 	cm.log(true, "starting %v", "test")
 	cm.Die = make(chan int, 20)
+	cm.ReallyDie = make(chan int, 20)
 	startTime := time.Now().UnixNano()
 
 	// ticker to make regular requests
 	for {
+		if !cm.IsAlive {
+			continue
+		}
 		select {
-		case <-cm.Die:
-			cm.log(false, "dead")
+		case <-cm.ReallyDie:
 			cm.log(false, "DIED -- Time Elapsed: %v ms", float32((time.Now().UnixNano()-startTime)/int64(time.Millisecond)))
 			return
+		case <-cm.Die:
+			cm.IsAlive = false
+			cm.log(false, "dead, ressurecting in 6 seconds")
+			go cm.Ressurect()
 
 		case m := <-cm.Incoming:
 			cm.EnqueueRequest(m)
@@ -64,12 +73,12 @@ func (cm *CentralManager) Start() {
 
 			pageId := cm.LongestQueue()
 			if pageId == -1 {
+				// cm.log(false, "breaking cus no available req")
 				break
 			}
-			cm.log(false, "pageId: %v, requestMap: %v", pageId, cm.CurrentState.RequestMap[pageId].Queue)
+			cm.log(true, "pageId: %v, requestMap: %v", pageId, cm.CurrentState.RequestMap[pageId].Queue)
 			queuedMessage := cm.CurrentState.RequestMap[pageId].Queue[0]
 			cm.HandleMessage(queuedMessage)
-			cm.log(false, "handled pageID : %v", pageId)
 			cm.ForwardState()
 		}
 	}
@@ -88,6 +97,7 @@ func (cm *CentralManager) EnqueueRequest(m Message) {
 
 	if isDuplicate := CheckDuplicate(pageStatus.Queue, m); isDuplicate {
 		cm.log(false, "found duplicate request, dropping")
+		cm.log(false, "isPrimary: %v", cm.IsPrimary)
 		return
 	}
 
@@ -104,6 +114,9 @@ func (cm *CentralManager) HandleMessage(m Message) {
 	if cm.IsPrimary {
 		if cm.CountDownToDeath--; cm.CountDownToDeath <= 0 {
 			cm.Die <- 1
+		}
+		if cm.FinalCountDownToDeath--; cm.FinalCountDownToDeath <= 0 {
+			cm.ReallyDie <- 1
 		}
 	}
 
@@ -122,6 +135,8 @@ func (cm *CentralManager) HandleMessage(m Message) {
 		cm.HandleForwardState(m)
 	case ELECT:
 		cm.HandleElect(m)
+	case ANNOUNCE_PRIMARY:
+		cm.HandleAnnouncePrimary(m)
 	case CHECK_ALIVE:
 		cm.PChannels[m.Sender] <- Message{Sender: cm.Id, Type: ACKNOWLEDGE}
 	}
@@ -269,6 +284,12 @@ func (cm *CentralManager) HandleElect(m Message) {
 			cm.HandleWriteRequest(lastRequest)
 		}
 	}
+	for i := range cm.CentralManagersConfirmation {
+		if i == cm.Id {
+			continue
+		}
+		cm.CentralManagersConfirmation[i] <- Message{Type: ANNOUNCE_PRIMARY}
+	}
 }
 
 func (cm *CentralManager) HandleForwardState(m Message) {
@@ -307,11 +328,23 @@ func (cm *CentralManager) LongestQueue() int {
 		resStatus := cm.CurrentState.RequestMap[pageId]
 		if resStatus.Status.State == IDLE {
 			if len(resStatus.Queue) > maxSeenLength {
-				cm.log(false, "max length %v, status %v", len(resStatus.Queue), resStatus)
 				maxSeenLength = len(cm.CurrentState.RequestMap[pageId].Queue)
 				result = pageId
 			}
 		}
 	}
 	return result
+}
+
+func (cm *CentralManager) Ressurect() {
+	time.Sleep(5 * time.Second)
+	cm.IsAlive = true
+	cm.CountDownToDeath = 100
+	for i := 0; i < len(cm.PChannels); i++ {
+		cm.PChannels[i] <- Message{Type: START_ELECTION}
+	}
+}
+
+func (cm *CentralManager) HandleAnnouncePrimary(m Message) {
+	cm.IsPrimary = false
 }

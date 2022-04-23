@@ -23,7 +23,7 @@ type Processor struct {
 
 func (p *Processor) Start() {
 	// ticker to make regular requests
-	reqTicker := time.NewTicker(time.Duration(rand.Intn(p.TimeoutDur * int(time.Second))))
+	reqTicker := time.NewTicker(time.Duration(rand.Intn(2 * int(time.Second))))
 	for {
 		select {
 		case <-reqTicker.C:

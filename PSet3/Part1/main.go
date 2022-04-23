@@ -9,12 +9,12 @@ import (
 const NUM_OF_VARIABLES = 4
 const NUM_OF_PROCESSORS = 10
 const TIMEOUT_DURATION = 5
-const TOTAL_CM_MESSAGES = 100
+const TOTAL_CM_MESSAGES = 10000
 
 func main() {
 	cmIncomingChan := make(chan lib.Message, 10*NUM_OF_PROCESSORS)
 	cmConfirmationChan := make(chan lib.Message, 10*NUM_OF_PROCESSORS)
-	processorChannels := make([]chan lib.Message, 10*NUM_OF_PROCESSORS)
+	processorChannels := make([]chan lib.Message, NUM_OF_PROCESSORS)
 	for i := 0; i < NUM_OF_PROCESSORS; i++ {
 		processorChannels[i] = make(chan lib.Message, 10*NUM_OF_PROCESSORS)
 	}
