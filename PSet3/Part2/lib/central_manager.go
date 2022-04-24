@@ -45,9 +45,6 @@ func (cm *CentralManager) Start() {
 
 	// ticker to make regular requests
 	for {
-		if !cm.IsAlive {
-			continue
-		}
 		select {
 		case <-cm.ReallyDie:
 			cm.log(false, "DIED -- Time Elapsed: %v ms", float32((time.Now().UnixNano()-startTime)/int64(time.Millisecond)))
@@ -58,16 +55,22 @@ func (cm *CentralManager) Start() {
 			go cm.Ressurect()
 
 		case m := <-cm.Incoming:
+			if !cm.IsAlive {
+				break
+			}
 			cm.EnqueueRequest(m)
 			cm.ForwardState()
 
 		case m := <-cm.ConfirmationChan:
+			if !cm.IsAlive {
+				break
+			}
 			cm.log(true, "%v message (%v) from %v for pageId %v", m.Type.toString(), m.Type, m.Sender, m.PageId)
 			cm.HandleMessage(m)
 			cm.ForwardState()
 
 		default:
-			if !cm.IsPrimary {
+			if !cm.IsPrimary || cm.IsAlive {
 				break
 			}
 
